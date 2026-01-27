@@ -1,17 +1,17 @@
-﻿import React, { useState } from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
-  TouchableOpacity,
   TextInput,
+  TouchableOpacity,
   StyleSheet,
   ScrollView,
   SafeAreaView,
 } from "react-native";
 import { Check, Plus } from "lucide-react-native";
 
-interface InterestSelectionScreenProps {
-  onContinue: (data: { interests: string[]; bio: string }) => void;
+interface PersonalizeCardScreenProps {
+  onContinue: (data: { bio?: string; interests?: string[] }) => void;
 }
 
 const INTERESTS = [
@@ -29,9 +29,9 @@ const INTERESTS = [
   "Movies",
 ];
 
-export function InterestSelectionScreen({
+export function PersonalizeCardScreen({
   onContinue,
-}: InterestSelectionScreenProps) {
+}: PersonalizeCardScreenProps) {
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
   const [customInterests, setCustomInterests] = useState<string[]>([]);
   const [customInput, setCustomInput] = useState("");
@@ -68,7 +68,7 @@ export function InterestSelectionScreen({
   const allInterests = [...INTERESTS, ...customInterests];
 
   const handleContinue = () => {
-    onContinue({ interests: selectedInterests, bio });
+    onContinue({ bio, interests: selectedInterests });
   };
 
   return (
@@ -91,12 +91,12 @@ export function InterestSelectionScreen({
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Interests</Text>
-            <Text style={styles.selectionCount}>
+            <Text style={styles.selectedCount}>
               {selectedInterests.length}/3 selected
             </Text>
           </View>
 
-          <View style={styles.interestsContainer}>
+          <View style={styles.interestsGrid}>
             {allInterests.map((interest) => (
               <TouchableOpacity
                 key={interest}
@@ -111,15 +111,12 @@ export function InterestSelectionScreen({
                     selectedInterests.length >= 3 &&
                     styles.interestChipDisabled,
                 ]}
-                activeOpacity={0.7}
+                activeOpacity={0.8}
               >
                 <Text
                   style={[
-                    styles.interestChipText,
-                    isSelected(interest) && styles.interestChipTextSelected,
-                    !isSelected(interest) &&
-                      selectedInterests.length >= 3 &&
-                      styles.interestChipTextDisabled,
+                    styles.interestText,
+                    isSelected(interest) && styles.interestTextSelected,
                   ]}
                 >
                   {interest}
@@ -129,19 +126,19 @@ export function InterestSelectionScreen({
           </View>
 
           {/* Add Custom Interest */}
-          <View style={styles.customInterestContainer}>
+          <View style={styles.customInputContainer}>
             <TextInput
               value={customInput}
               onChangeText={setCustomInput}
+              onSubmitEditing={addCustomInterest}
               placeholder="Add a custom interest..."
               placeholderTextColor="#6B7280"
               style={styles.customInput}
-              onSubmitEditing={addCustomInterest}
-              returnKeyType="done"
             />
             <TouchableOpacity
               onPress={addCustomInterest}
               style={styles.addButton}
+              activeOpacity={0.8}
             >
               <Plus width={20} height={20} color="#000000" />
             </TouchableOpacity>
@@ -156,10 +153,10 @@ export function InterestSelectionScreen({
             onChangeText={setBio}
             placeholder="Tell us about yourself..."
             placeholderTextColor="#6B7280"
+            style={styles.bioInput}
             multiline
             numberOfLines={5}
             maxLength={200}
-            style={styles.bioInput}
             textAlignVertical="top"
           />
           <Text style={styles.charCount}>{bio.length}/200</Text>
@@ -190,27 +187,28 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 24,
     paddingVertical: 32,
-    paddingBottom: 100,
+    paddingBottom: 48,
   },
   header: {
     marginBottom: 32,
   },
   headerTitle: {
+    fontSize: 32,
+    fontWeight: "400",
     color: "#FFFFFF",
-    fontSize: 28,
-    fontWeight: "800",
+    marginBottom: 8,
+    letterSpacing: -0.5,
   },
   subtitle: {
-    color: "#6B7280",
     fontSize: 14,
-    marginTop: 4,
+    color: "#6B7280",
+    marginBottom: 12,
   },
   divider: {
     width: 48,
     height: 4,
     backgroundColor: "#D4AF37",
     borderRadius: 2,
-    marginTop: 8,
   },
   section: {
     marginBottom: 32,
@@ -222,16 +220,16 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   sectionTitle: {
-    color: "#D1D5DB",
     fontSize: 18,
-    fontWeight: "600",
+    color: "#D1D5DB",
+    fontWeight: "400",
   },
-  selectionCount: {
-    color: "#D4AF37",
+  selectedCount: {
     fontSize: 14,
-    fontWeight: "600",
+    color: "#D4AF37",
+    fontWeight: "500",
   },
-  interestsContainer: {
+  interestsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 10,
@@ -239,37 +237,35 @@ const styles = StyleSheet.create({
   interestChip: {
     paddingHorizontal: 20,
     paddingVertical: 10,
-    borderRadius: 24,
-    backgroundColor: "#1F2937",
+    borderRadius: 20,
+    backgroundColor: "#111827",
     borderWidth: 1,
     borderColor: "#374151",
   },
   interestChipSelected: {
     backgroundColor: "#D4AF37",
     borderColor: "#D4AF37",
-    shadowColor: "#D4AF37",
+    shadowColor: "#FBBF24",
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.3,
     shadowRadius: 20,
     elevation: 8,
   },
   interestChipDisabled: {
-    backgroundColor: "#1F2937",
+    backgroundColor: "#111827",
     borderColor: "#1F2937",
     opacity: 0.5,
   },
-  interestChipText: {
-    color: "#FFFFFF",
+  interestText: {
     fontSize: 14,
+    color: "#FFFFFF",
+    fontWeight: "400",
   },
-  interestChipTextSelected: {
+  interestTextSelected: {
     color: "#000000",
-    fontWeight: "600",
+    fontWeight: "500",
   },
-  interestChipTextDisabled: {
-    color: "#6B7280",
-  },
-  customInterestContainer: {
+  customInputContainer: {
     flexDirection: "row",
     alignItems: "center",
     marginTop: 16,
@@ -277,10 +273,10 @@ const styles = StyleSheet.create({
   },
   customInput: {
     flex: 1,
-    backgroundColor: "#1F2937",
+    backgroundColor: "#111827",
     borderWidth: 1,
     borderColor: "#374151",
-    borderRadius: 16,
+    borderRadius: 20,
     paddingHorizontal: 20,
     paddingVertical: 16,
     color: "#FFFFFF",
@@ -291,35 +287,36 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    justifyContent: "center",
     alignItems: "center",
+    justifyContent: "center",
   },
   bioInput: {
-    backgroundColor: "#1F2937",
+    backgroundColor: "#111827",
     borderWidth: 1,
     borderColor: "#374151",
-    borderRadius: 16,
+    borderRadius: 20,
     paddingHorizontal: 20,
     paddingVertical: 16,
     color: "#FFFFFF",
     fontSize: 16,
-    height: 120,
+    minHeight: 120,
+    textAlignVertical: "top",
   },
   charCount: {
-    color: "#6B7280",
     fontSize: 12,
+    color: "#6B7280",
     textAlign: "right",
     marginTop: 8,
   },
   finishButton: {
     backgroundColor: "#D4AF37",
-    borderRadius: 24,
     paddingVertical: 16,
-    paddingHorizontal: 24,
+    borderRadius: 24,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 32,
+    marginTop: 16,
+    gap: 8,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
@@ -329,7 +326,6 @@ const styles = StyleSheet.create({
   finishButtonText: {
     color: "#000000",
     fontSize: 16,
-    fontWeight: "700",
-    marginLeft: 8,
+    fontWeight: "600",
   },
 });

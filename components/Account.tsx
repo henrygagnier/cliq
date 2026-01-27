@@ -269,7 +269,7 @@ export default function UnifiedCardScreen({
     console.log(data);
 
     if (error) {
-      Alert.alert("Failed to load profile");
+      console.log("Profile not found or error loading:", error);
       return;
     }
     setProfile(data);

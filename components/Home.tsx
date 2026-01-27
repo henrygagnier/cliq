@@ -6,6 +6,9 @@ import {
   View,
   ActivityIndicator,
   Dimensions,
+  Modal,
+  ScrollView,
+  TouchableWithoutFeedback,
 } from "react-native";
 import { Box, VStack, HStack, Text, Pressable } from "@gluestack-ui/themed";
 import FontAwesome6 from "@expo/vector-icons/FontAwesome6";
@@ -14,6 +17,7 @@ import * as Location from "expo-location";
 import { useNavigation } from "@react-navigation/native";
 import { supabase } from "../lib/supabase";
 import { LinearGradient } from "expo-linear-gradient";
+import { HotspotsMainPage } from "./Rewards";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -34,6 +38,7 @@ export default function HotspotMap() {
   const syncInProgress = useRef(false);
   const nextAllowedSyncTime = useRef(0); // cool-down timestamp to avoid hammering OSM when errors occur
   const navigation = useNavigation<any>();
+  const [showFeedModal, setShowFeedModal] = useState(false);
 
   // Get user location on mount
   useEffect(() => {
@@ -69,7 +74,7 @@ export default function HotspotMap() {
     lat2: number,
     lon2: number,
   ) => {
-    const R = 6371; // Earth's radius in km
+    const R = 3959; // Earth's radius in mi
     const dLat = toRad(lat2 - lat1);
     const dLon = toRad(lon2 - lon1);
     const a =
@@ -86,11 +91,11 @@ export default function HotspotMap() {
     return (value * Math.PI) / 180;
   };
 
-  const formatDistance = (distanceKm: number) => {
-    if (distanceKm < 1) {
-      return `${Math.round(distanceKm * 1000)}m`;
+  const formatDistance = (distanceMi: number) => {
+    if (distanceMi < 1) {
+      return `${Math.round(distanceMi * 5280)}ft`;
     }
-    return `${distanceKm.toFixed(1)}km`;
+    return `${distanceMi.toFixed(1)}mi`;
   };
 
   // Determine radius and minimum distance between markers based on zoom level
@@ -100,58 +105,58 @@ export default function HotspotMap() {
     // Super granular zoom levels with smooth transitions
     if (zoom >= 18) {
       radius = 0.3;
-      minDistance = 0.015; // ~15m apart
+      minDistance = 0.0075; // ~15m apart
     } else if (zoom >= 17.75) {
       radius = 0.35;
-      minDistance = 0.018; // ~18m apart
+      minDistance = 0.009; // ~18m apart
     } else if (zoom >= 17.5) {
       radius = 0.4;
-      minDistance = 0.022; // ~22m apart
+      minDistance = 0.011; // ~22m apart
     } else if (zoom >= 17.25) {
       radius = 0.45;
-      minDistance = 0.025; // ~25m apart
+      minDistance = 0.0125; // ~25m apart
     } else if (zoom >= 17) {
       radius = 0.5;
-      minDistance = 0.03; // ~30m apart
+      minDistance = 0.015; // ~30m apart
     } else if (zoom >= 16.75) {
       radius = 0.6;
-      minDistance = 0.04; // ~40m apart
+      minDistance = 0.02; // ~40m apart
     } else if (zoom >= 16.5) {
       radius = 0.7;
-      minDistance = 0.05; // ~50m apart
+      minDistance = 0.025; // ~50m apart
     } else if (zoom >= 16.25) {
       radius = 0.85;
-      minDistance = 0.055; // ~55m apart
+      minDistance = 0.0275; // ~55m apart
     } else if (zoom >= 16) {
       radius = 1.0;
-      minDistance = 0.06; // ~60m apart
+      minDistance = 0.03; // ~60m apart
     } else if (zoom >= 15.75) {
       radius = 1.2;
-      minDistance = 0.08; // ~80m apart
+      minDistance = 0.04; // ~80m apart
     } else if (zoom >= 15.5) {
       radius = 1.4;
-      minDistance = 0.09; // ~90m apart
+      minDistance = 0.045; // ~90m apart
     } else if (zoom >= 15.25) {
       radius = 1.7;
-      minDistance = 0.1; // ~100m apart
+      minDistance = 0.05; // ~100m apart
     } else if (zoom >= 15) {
       radius = 2.0;
-      minDistance = 0.12; // ~120m apart
+      minDistance = 0.06; // ~120m apart
     } else if (zoom >= 14.75) {
       radius = 2.3;
-      minDistance = 0.15; // ~150m apart
+      minDistance = 0.075; // ~150m apart
     } else if (zoom >= 14.5) {
       radius = 2.6;
-      minDistance = 0.18; // ~180m apart
+      minDistance = 0.09; // ~180m apart
     } else if (zoom >= 14.25) {
       radius = 2.8;
-      minDistance = 0.2; // ~200m apart
+      minDistance = 0.1; // ~200m apart
     } else if (zoom >= 14) {
       radius = 3.0;
-      minDistance = 0.22; // ~220m apart
+      minDistance = 0.11; // ~220m apart
     } else {
       radius = 4.0;
-      minDistance = 0.3; // ~300m apart
+      minDistance = 0.15; // ~300m apart
     }
 
     return { radius, minDistance };
@@ -226,13 +231,13 @@ export default function HotspotMap() {
             ...hotspot,
             lat: hotspot.latitude,
             lng: hotspot.longitude,
-            distanceKm: distanceFromUser,
+            distanceMi: distanceFromUser,
             distance: formatDistance(distanceFromUser),
             _distanceFromCenter: distanceFromCenter,
           };
         })
         .filter((hotspot) => hotspot._distanceFromCenter <= radius)
-        .sort((a, b) => a.distanceKm - b.distanceKm);
+        .sort((a, b) => a.distanceMi - b.distanceMi);
 
       setRawHotspots(hotspotsWithDistance);
       if (!hotspots || hotspots.length === 0) {
@@ -647,7 +652,11 @@ export default function HotspotMap() {
 
           .marker-button:hover .marker-core {
             transform: scale(1.05);
-            box-shadow: 0 12px 32px rgba(245,158,11,0.12);
+            box-shadow: 0 12px 32px rgba(37, 99, 235, 0.3);
+          }
+          
+          .marker-button.selected .marker-core {
+            background: #2563EB !important;
           }
 
           .marker-badge {
@@ -1000,21 +1009,39 @@ export default function HotspotMap() {
                   var markerSize = 44 + (userCount > 0 ? Math.min(userCount * 2, 24) : 0);
                   var pulseSize = markerSize + 16;
                   
+                  // Get emoji based on category/type
+                  var categoryEmojis = {
+                    cafe: '☕',
+                    bar: '🍸',
+                    pub: '🍺',
+                    fitness_centre: '💪',
+                    coworking_space: '💼',
+                    college: '🎓',
+                    university: '🎓',
+                    library: '📚',
+                    restaurant: '.🍔',
+                  };
+                  
+                  var emoji = categoryEmojis[spot.type] || '📍';
+                  var isActive = userCount > 50;
+                  
                   var markerHTML = \`
                     <button class="marker-button" style="position: relative; width: \${markerSize}px; height: \${markerSize}px;">
-                      <div class="marker-pulse" style="
-                        position: absolute;
-                        top: 50%;
-                        left: 50%;
-                        transform: translate(-50%, -50%);
-                        width: \${pulseSize}px;
-                        height: \${pulseSize}px;
-                        border-radius: 50%;
-                        background: #f59e0b;
-                        opacity: 0.4;
-                        animation: pulse 2.5s ease-in-out infinite;
-                        animation-delay: \${globalDelay};
-                      "></div>
+                      \${isActive ? \`
+                        <div class="marker-pulse" style="
+                          position: absolute;
+                          top: 50%;
+                          left: 50%;
+                          transform: translate(-50%, -50%);
+                          width: \${pulseSize}px;
+                          height: \${pulseSize}px;
+                          border-radius: 50%;
+                          background: #F97316;
+                          opacity: 0.4;
+                          animation: pulse 2s ease-in-out infinite;
+                          animation-delay: \${globalDelay};
+                        "></div>
+                      \` : ''}
                       
                       <div style="
                         position: absolute;
@@ -1023,34 +1050,36 @@ export default function HotspotMap() {
                         transform: translate(-50%, -50%);
                         width: \${markerSize}px;
                         height: \${markerSize}px;
-                        background: linear-gradient(135deg, #475569 0%, #1e293b 100%);
+                        background: #3B82F6;
                         border-radius: 50%;
-                        border: 1px solid rgba(71, 85, 105, 0.5);
-                        box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+                        border: 2px solid rgba(255, 255, 255, 0.2);
+                        box-shadow: 0 8px 24px rgba(0,0,0,0.4);
                         display: flex;
                         align-items: center;
                         justify-content: center;
+                        font-size: \${markerSize * 0.5}px;
                         transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
                       ">
+                        \${emoji}
+                        
                         <div style="
                           position: absolute;
-                          top: -6px;
-                          right: -6px;
-                          background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+                          top: -4px;
+                          right: -4px;
+                          background: #22C55E;
+                          border: 2px solid #16A34A;
                           color: white;
-                          font-weight: 600;
-                          font-size: 11px;
-                          padding: 2px 6px;
+                          font-weight: 700;
+                          font-size: 12px;
+                          padding: 0 6px;
                           border-radius: 9999px;
-                          box-shadow: 0 8px 32px rgba(245,158,11,0.4);
-                          min-width: 24px;
-                          text-align: center;
+                          box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+                          min-width: 20px;
+                          height: 20px;
+                          display: flex;
+                          align-items: center;
+                          justify-content: center;
                         ">\${userCount}</div>
-                        
-                        <svg width="\${markerSize * 0.45}" height="\${markerSize * 0.45}" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                          <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
-                          <circle cx="12" cy="10" r="3"></circle>
-                        </svg>
                       </div>
 
                       <div class="marker-tooltip">
@@ -1262,6 +1291,69 @@ export default function HotspotMap() {
           </LinearGradient>
         </View>
       )}
+
+      {/* Discover Hotspots Button */}
+      {!showFeedModal && (
+        <TouchableOpacity
+          style={styles.discoverButton}
+          onPress={() => setShowFeedModal(true)}
+          activeOpacity={0.9}
+        >
+          <LinearGradient
+            colors={["rgba(26, 27, 32, 0.95)", "rgba(26, 27, 32, 0.95)"]}
+            style={styles.discoverButtonGradient}
+          >
+            <View style={styles.discoverHandle} />
+            <Text style={styles.discoverButtonText}>Discover Hotspots</Text>
+          </LinearGradient>
+        </TouchableOpacity>
+      )}
+
+      {/* Feed Modal */}
+      <Modal
+        visible={showFeedModal}
+        animationType="slide"
+        transparent={false}
+        onRequestClose={() => setShowFeedModal(false)}
+      >
+        <View style={styles.feedModal}>
+          <View style={styles.feedModalHeader}>
+            <TouchableOpacity
+              onPress={() => setShowFeedModal(false)}
+              style={styles.closeButton}
+              activeOpacity={0.7}
+            >
+              <View style={styles.closeButtonCircle}>
+                <FontAwesome6 name="chevron-down" size={18} color="#FFFFFF" />
+              </View>
+            </TouchableOpacity>
+          </View>
+          <HotspotsMainPage
+            onCategoryClick={(category) => {
+              setShowFeedModal(false);
+              navigation.navigate("Category", { categoryName: category });
+            }}
+            onHotspotClick={async (hotspotId) => {
+              try {
+                const { data: hotspot, error } = await supabase
+                  .from("hotspots")
+                  .select("*")
+                  .eq("id", hotspotId)
+                  .single();
+                if (error) throw error;
+                setShowFeedModal(false);
+                navigation.navigate("HotspotDetail", { hotspot });
+              } catch (err) {
+                console.warn("Failed to load hotspot details:", err);
+                setShowFeedModal(false);
+                navigation.navigate("HotspotDetail", {
+                  hotspot: { id: hotspotId },
+                });
+              }
+            }}
+          />
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1347,5 +1439,177 @@ const styles = StyleSheet.create({
     color: "#f1f5f9",
     fontWeight: "700",
     marginLeft: 10,
+  },
+  discoverButton: {
+    position: "absolute",
+    bottom: 4,
+    left: 4,
+    right: 4,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.6,
+    shadowRadius: 24,
+    elevation: 12,
+    zIndex: 20,
+  },
+  discoverButtonGradient: {
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    borderWidth: 1,
+    borderColor: "rgba(82, 82, 91, 0.6)",
+    alignItems: "center",
+  },
+  discoverHandle: {
+    width: 48,
+    height: 4,
+    backgroundColor: "rgba(82, 82, 91, 0.8)",
+    borderRadius: 2,
+    marginBottom: 8,
+  },
+  discoverButtonText: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: "#ffffff",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+  },
+  modalBackdrop: {
+    flex: 1,
+  },
+  feedModal: {
+    flex: 1,
+    backgroundColor: "#0A0A0A",
+  },
+  feedModalContent: {
+    flex: 1,
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+  },
+  feedModalHeader: {
+    paddingTop: 16,
+    paddingBottom: 12,
+    paddingHorizontal: 20,
+    backgroundColor: "#0A0A0A",
+    zIndex: 10,
+    alignItems: "flex-end",
+  },
+  closeButton: {
+    alignSelf: "flex-end",
+  },
+  closeButtonCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(60, 60, 67, 0.6)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalHandle: {
+    width: 48,
+    height: 4,
+    backgroundColor: "rgba(82, 82, 91, 0.8)",
+    borderRadius: 2,
+  },
+  feedModalTitle: {
+    fontSize: 28,
+    fontWeight: "bold",
+    color: "#ffffff",
+    textAlign: "center",
+  },
+  feedModalScroll: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+  },
+  hotspotCard: {
+    marginBottom: 16,
+    borderRadius: 20,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  hotspotCardGradient: {
+    padding: 16,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "rgba(148, 163, 184, 0.15)",
+  },
+  hotspotCardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  hotspotName: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#ffffff",
+    flex: 1,
+  },
+  hotspotDistance: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#f59e0b",
+    marginLeft: 8,
+  },
+  hotspotCuisine: {
+    fontSize: 14,
+    color: "#94a3b8",
+    marginBottom: 12,
+  },
+  hotspotFooter: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  liveIndicator: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  liveDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#10b981",
+    marginRight: 6,
+  },
+  liveText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#10b981",
+  },
+  emptyState: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 60,
+    paddingHorizontal: 40,
+  },
+  emptyStateText: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#94a3b8",
+    marginTop: 16,
+    textAlign: "center",
+  },
+  emptyStateSubtext: {
+    fontSize: 14,
+    color: "#64748b",
+    marginTop: 8,
+    textAlign: "center",
+    lineHeight: 20,
   },
 });

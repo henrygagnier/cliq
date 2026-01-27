@@ -168,9 +168,9 @@ export function CategoryPage({
         const hotspotsWithDistance = (allHotspots || [])
           .map((h: any) => ({
             ...h,
-            distanceKm: calculateDistance(lat, lon, h.latitude, h.longitude),
+            distanceMi: calculateDistance(lat, lon, h.latitude, h.longitude),
           }))
-          .filter((h: any) => h.distanceKm <= 20)
+          .filter((h: any) => h.distanceMi <= 12.4)
           .filter((h: any) => {
             if (types.length === 0) return true;
             return types.includes((h.type || "").toLowerCase());
@@ -195,9 +195,9 @@ export function CategoryPage({
           id: h.id,
           name: h.name,
           distance:
-            h.distanceKm < 1
-              ? `${Math.round(h.distanceKm * 1000)}m away`
-              : `${h.distanceKm.toFixed(1)}km away`,
+            h.distanceMi < 1
+              ? `${Math.round(h.distanceMi * 5280)}ft away`
+              : `${h.distanceMi.toFixed(1)}mi away`,
           userCount: counts[h.id] || 0,
           vibe: h.type || "location",
           isActive: (counts[h.id] || 0) > 0,

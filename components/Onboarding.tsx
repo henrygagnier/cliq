@@ -2,24 +2,16 @@ import React, { useState } from "react";
 import { View, Text, StyleSheet } from "react-native";
 import * as FileSystem from "expo-file-system";
 import { supabase } from "../lib/supabase";
-import { WelcomeScreen } from "./onboarding/WelcomeScreen";
-import { ValuePropCarousel } from "./onboarding/ValuePropCarousel";
 import { PermissionsScreen } from "./onboarding/PermissionsScreen";
 import { CreateProfileScreen } from "./onboarding/CreateProfileScreen";
 import { DateOfBirthScreen } from "./onboarding/DateOfBirthScreen";
-import { InterestSelectionScreen } from "./onboarding/InterestSelectionScreen";
-import { MapPreviewScreen } from "./onboarding/MapPreviewScreen";
-import { ReadyScreen } from "./onboarding/ReadyScreen";
+import { PersonalizeCardScreen } from "./onboarding/PersonalizeCardScreen";
 
 type OnboardingStep =
-  | "welcome"
-  | "value-prop"
-  | "permissions"
-  | "profile"
   | "dob"
-  | "interests"
-  | "map-preview"
-  | "ready"
+  | "profile"
+  | "personalize"
+  | "permissions"
   | "complete";
 
 interface OnboardingProps {
@@ -42,7 +34,7 @@ export default function Onboarding({
   email,
   onComplete,
 }: OnboardingProps) {
-  const [currentStep, setCurrentStep] = useState<OnboardingStep>("welcome");
+  const [currentStep, setCurrentStep] = useState<OnboardingStep>("dob");
   const [onboardingData, setOnboardingData] = useState<OnboardingData>({});
   const [loading, setLoading] = useState(false);
 
@@ -70,10 +62,13 @@ export default function Onboarding({
             },
           );
 
+          // Decode base64 to binary for upload
+          const arrayBuffer = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+
           const { data: uploadData, error: uploadError } =
             await supabase.storage
               .from("avatars")
-              .upload(fileName, Buffer.from(base64, "base64"), {
+              .upload(fileName, arrayBuffer, {
                 contentType: "image/jpeg",
               });
 
@@ -125,16 +120,13 @@ export default function Onboarding({
 
   return (
     <View style={styles.container}>
-      {currentStep === "welcome" && (
-        <WelcomeScreen onGetStarted={() => setCurrentStep("value-prop")} />
-      )}
-
-      {currentStep === "value-prop" && (
-        <ValuePropCarousel onComplete={() => setCurrentStep("permissions")} />
-      )}
-
-      {currentStep === "permissions" && (
-        <PermissionsScreen onAllow={() => setCurrentStep("profile")} />
+      {currentStep === "dob" && (
+        <DateOfBirthScreen
+          onContinue={(dob) => {
+            setOnboardingData((prev) => ({ ...prev, dob }));
+            setCurrentStep("profile");
+          }}
+        />
       )}
 
       {currentStep === "profile" && (
@@ -143,34 +135,25 @@ export default function Onboarding({
             if (data) {
               setOnboardingData((prev) => ({ ...prev, ...data }));
             }
-            setCurrentStep("dob");
+            setCurrentStep("personalize");
           }}
         />
       )}
 
-      {currentStep === "dob" && (
-        <DateOfBirthScreen
-          onContinue={(dob) => {
-            setOnboardingData((prev) => ({ ...prev, dob }));
-            setCurrentStep("interests");
+      {currentStep === "personalize" && (
+        <PersonalizeCardScreen
+          onContinue={(data?: Partial<OnboardingData>) => {
+            if (data) {
+              setOnboardingData((prev) => ({ ...prev, ...data }));
+            }
+            setCurrentStep("permissions");
           }}
         />
       )}
 
-      {currentStep === "interests" && (
-        <InterestSelectionScreen
-          onContinue={(interests: string[]) => {
-            setOnboardingData((prev) => ({ ...prev, interests }));
-            setCurrentStep("map-preview");
-          }}
-        />
+      {currentStep === "permissions" && (
+        <PermissionsScreen onAllow={handleComplete} />
       )}
-
-      {currentStep === "map-preview" && (
-        <MapPreviewScreen onContinue={() => setCurrentStep("ready")} />
-      )}
-
-      {currentStep === "ready" && <ReadyScreen onEnterMap={handleComplete} />}
     </View>
   );
 }

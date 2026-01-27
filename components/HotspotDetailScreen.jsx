@@ -1,223 +1,157 @@
-// HotspotDetailScreen.js - Full Implementation with Reply & Reaction Features
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
+  Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
-  RefreshControl,
-  SafeAreaView,
+  Animated,
+  ScrollView,
   Alert,
-  ActivityIndicator,
+  Dimensions,
+  TextInput,
   KeyboardAvoidingView,
   Platform,
-  Image,
-  Modal,
-  Linking,
-  Dimensions,
 } from "react-native";
-import {
-  Text,
-  Box,
-  HStack,
-  VStack,
-  Pressable,
-  Avatar,
-  Input,
-  InputField,
-} from "@gluestack-ui/themed";
 import FontAwesome6 from "@expo/vector-icons/FontAwesome6";
 import { useNavigation } from "@react-navigation/native";
 import { supabase } from "../lib/supabase";
 import * as Location from "expo-location";
 import { LinearGradient } from "expo-linear-gradient";
+import { ChatFeedModal } from "./ChatFeedModal";
 
-const hotspotJoinDistance = 10000;
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
+
+// Helper functions
+const calculateDistance = (lat1, lon1, lat2, lon2) => {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+};
+
+const miToFeet = (mi) => mi * 5280;
+
+const getDailyUserRange = (current) => {
+  const estimated = current * 3.5;
+  if (estimated >= 100) return "100+";
+  if (estimated >= 70) return "70+";
+  if (estimated >= 50) return "50+";
+  if (estimated >= 25) return "25+";
+  return "10+";
+};
+
+const getCategoryTags = (category) => {
+  const categoryMap = {
+    bars: ["Cocktails", "Happy Hour", "Nightlife"],
+    bar: ["Cocktails", "Happy Hour", "Nightlife"],
+    pub: ["Cocktails", "Happy Hour", "Nightlife"],
+    food: ["Dining", "Casual", "Takeout"],
+    cafe: ["Coffee", "Casual", "WiFi"],
+    restaurant: ["Dining", "Casual", "Takeout"],
+    fitness: ["Workout", "Wellness", "Classes"],
+    fitness_centre: ["Workout", "Wellness", "Classes"],
+    nightlife: ["Club", "Dancing", "Late Night"],
+    events: ["Live", "Entertainment", "Special Event"],
+    coworking_space: ["Work", "WiFi", "Community"],
+    college: ["Study", "Campus", "Community"],
+    university: ["Study", "Campus", "Community"],
+    library: ["Study", "Quiet", "Books"],
+  };
+  return (
+    categoryMap[category?.toLowerCase()] || ["Trending", "Popular", "Local"]
+  );
+};
 
 const HotspotDetailScreen = ({ route }) => {
   const hotspot = route?.params?.hotspot;
   const navigation = useNavigation();
+  const slideAnim = useRef(new Animated.Value(0)).current;
 
-  // Defensive: if no hotspot passed, render a safe fallback
-  if (!hotspot) {
-    console.warn(
-      "HotspotDetailScreen opened without hotspot param:",
-      route?.params,
-    );
-    return (
-      <SafeAreaView style={styles.transparentRoot}>
-        <View style={styles.backdrop}>
-          <TouchableOpacity
-            style={styles.backdropTouchable}
-            onPress={() => navigation.goBack()}
-            activeOpacity={1}
-          />
-          <View
-            style={[
-              styles.sheetWrapper,
-              { justifyContent: "center", alignItems: "center" },
-            ]}
-          >
-            <Text style={{ color: "#FFF", fontSize: 18, fontWeight: "700" }}>
-              No hotspot data available
-            </Text>
-            <TouchableOpacity
-              onPress={() => navigation.goBack()}
-              style={{ marginTop: 12 }}
-            >
-              <Text style={{ color: "#D4AF37" }}>Go back</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  // State Management
+  // State
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [activeUsers, setActiveUsers] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
   const [isJoined, setIsJoined] = useState(false);
-  const [sendingMessage, setSendingMessage] = useState(false);
   const [userLocation, setUserLocation] = useState(null);
-  const [selectedReactionMessageId, setSelectedReactionMessageId] =
-    useState(null);
-  const [replyingTo, setReplyingTo] = useState(null);
-  const [selectedProfile, setSelectedProfile] = useState(null);
-  const [showProfileAbout, setShowProfileAbout] = useState(false);
-  const [showProfileSocials, setShowProfileSocials] = useState(false);
-  const [windowWidth, setWindowWidth] = useState(
-    Dimensions.get("window").width,
-  );
-  const [activeTab, setActiveTab] = useState("people"); // "people" or "chat"
+  const [actualDistance, setActualDistance] = useState(null);
+  const [showAllMessages, setShowAllMessages] = useState(false);
+  const [isChatModalOpen, setIsChatModalOpen] = useState(false);
+  const [weeklyUserCount, setWeeklyUserCount] = useState(null);
 
-  // Toggle reaction bar for a message
-  const toggleReactionBar = (messageId) => {
-    setSelectedReactionMessageId((prev) =>
-      prev === messageId ? null : messageId,
+  if (!hotspot) {
+    return (
+      <View style={styles.container}>
+        <TouchableOpacity
+          style={styles.backdrop}
+          activeOpacity={1}
+          onPress={() => navigation.goBack()}
+        />
+        <View style={styles.card}>
+          <Text style={styles.fallbackText}>No hotspot data available</Text>
+          <TouchableOpacity onPress={() => navigation.goBack()}>
+            <Text style={styles.fallbackButton}>Go back</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
     );
-  };
+  }
 
-  // Add reaction to a message (with Supabase persistence)
-  // Each user can only add each emoji once
-  const handleAddReaction = async (messageId, emoji) => {
-    if (!currentUser) return;
+  const categoryTags = getCategoryTags(hotspot.type || hotspot.category);
+  const currentCount = activeUsers.length || hotspot.people_count || 0;
 
-    // Hide the reaction bar after adding
-    setTimeout(() => setSelectedReactionMessageId(null), 200);
-
-    try {
-      // Get current reactions from database
-      const { data: message, error: fetchError } = await supabase
-        .from("hotspot_messages")
-        .select("reactions")
-        .eq("id", messageId)
-        .single();
-
-      if (fetchError) throw fetchError;
-
-      const currentReactions = message.reactions || [];
-      const existingReaction = currentReactions.find((r) => r.emoji === emoji);
-
-      let updatedReactions;
-
-      // Check if current user already reacted with this emoji
-      if (existingReaction) {
-        const userReactedIds = existingReaction.userIds || [];
-        const userAlreadyReacted = userReactedIds.includes(currentUser.id);
-
-        if (userAlreadyReacted) {
-          // Remove user's reaction
-          const newUserIds = userReactedIds.filter(
-            (id) => id !== currentUser.id,
-          );
-
-          if (newUserIds.length === 0) {
-            // Remove the entire reaction if no users left
-            updatedReactions = currentReactions.filter(
-              (r) => r.emoji !== emoji,
-            );
-          } else {
-            // Update reaction with user removed
-            updatedReactions = currentReactions.map((r) =>
-              r.emoji === emoji
-                ? { ...r, count: newUserIds.length, userIds: newUserIds }
-                : r,
-            );
-          }
-        } else {
-          // Add user's reaction
-          const newUserIds = [...userReactedIds, currentUser.id];
-          updatedReactions = currentReactions.map((r) =>
-            r.emoji === emoji
-              ? { ...r, count: newUserIds.length, userIds: newUserIds }
-              : r,
-          );
-        }
-      } else {
-        // Add new reaction
-        updatedReactions = [
-          ...currentReactions,
-          { emoji, count: 1, userIds: [currentUser.id] },
-        ];
-      }
-
-      // Update in database
-      const { error: updateError } = await supabase
-        .from("hotspot_messages")
-        .update({ reactions: updatedReactions })
-        .eq("id", messageId);
-
-      if (updateError) throw updateError;
-
-      // Update local state
-      setMessages((prev) =>
-        prev.map((m) => {
-          if (m.id !== messageId) return m;
-          return { ...m, reactions: updatedReactions };
-        }),
-      );
-    } catch (error) {
-      console.error("Error adding reaction:", error);
-      // Refresh messages on error
-      await fetchMessages();
-    }
-  };
-
-  // Set up reply to a message
-  const handleReply = (message) => {
-    setReplyingTo(message);
-    setSelectedReactionMessageId(null);
-  };
-
-  // Get user location for distance calculation
-  const requestUserLocation = async () => {
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") {
-        console.warn("Location permission not granted");
-        return false;
-      }
-      const { coords } = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
-      setUserLocation({
-        latitude: coords.latitude,
-        longitude: coords.longitude,
-      });
-      return true;
-    } catch (error) {
-      console.error("Error getting location:", error);
-      return false;
-    }
-  };
-
+  // Animation
   useEffect(() => {
-    requestUserLocation();
+    Animated.spring(slideAnim, {
+      toValue: 0,
+      damping: 30,
+      stiffness: 300,
+      useNativeDriver: true,
+    }).start();
   }, []);
+
+  // Get user location
+  useEffect(() => {
+    const getUserLocation = async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== "granted") return;
+
+        const { coords } = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        setUserLocation({
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+        });
+
+        if (hotspot.latitude && hotspot.longitude) {
+          const distMi = calculateDistance(
+            coords.latitude,
+            coords.longitude,
+            hotspot.latitude,
+            hotspot.longitude,
+          );
+          const distFeet = miToFeet(distMi);
+          if (distFeet < 1000) {
+            setActualDistance(`${Math.round(distFeet)}ft`);
+          } else {
+            setActualDistance(`${distMi.toFixed(1)}mi`);
+          }
+        }
+      } catch (error) {
+        console.error("Error getting location:", error);
+      }
+    };
+    getUserLocation();
+  }, [hotspot]);
 
   // Get current user
   useEffect(() => {
@@ -243,28 +177,12 @@ const HotspotDetailScreen = ({ route }) => {
     getCurrentUser();
   }, []);
 
-  // Fetch messages with user info and reply data
+  // Fetch messages
   const fetchMessages = async () => {
     try {
       const { data, error } = await supabase
         .from("hotspot_messages_with_replies")
-        .select(
-          `
-          id,
-          content,
-          created_at,
-          user_id,
-          reply_to_message_id,
-          reply_to_content,
-          reply_to_username,
-          pinned,
-          type,
-          reactions,
-          full_name,
-          email,
-          avatar_url
-        `,
-        )
+        .select("*")
         .eq("hotspot_id", hotspot.id)
         .order("created_at", { ascending: true })
         .limit(50);
@@ -274,14 +192,35 @@ const HotspotDetailScreen = ({ route }) => {
       const formattedMessages = data.map((msg) => ({
         ...msg,
         username: msg.full_name || msg.email?.split("@")[0] || "Unknown User",
-        avatar_url: msg.avatar_url || null,
       }));
 
       setMessages(formattedMessages);
     } catch (error) {
       console.error("Error fetching messages:", error);
-    } finally {
-      setLoading(false);
+    }
+  };
+
+  // Fetch weekly user count from history
+  const fetchWeeklyUserCount = async () => {
+    try {
+      const oneWeekAgo = new Date(
+        Date.now() - 7 * 24 * 60 * 60 * 1000,
+      ).toISOString();
+
+      const { data, error, count } = await supabase
+        .from("hotspot_visit_history")
+        .select("user_id", { count: "exact", head: false })
+        .eq("hotspot_id", hotspot.id)
+        .gte("visited_at", oneWeekAgo);
+
+      if (error) throw error;
+
+      // Get unique user count
+      const uniqueUsers = data ? new Set(data.map((d) => d.user_id)).size : 0;
+      setWeeklyUserCount(uniqueUsers);
+    } catch (error) {
+      console.error("Error fetching weekly user count:", error);
+      setWeeklyUserCount(0);
     }
   };
 
@@ -299,12 +238,8 @@ const HotspotDetailScreen = ({ route }) => {
             full_name,
             email,
             avatar_url,
-            location,
             bio,
-            socials,
-            points,
-            created_at,
-            dob
+            points
           )
         `,
         )
@@ -321,22 +256,12 @@ const HotspotDetailScreen = ({ route }) => {
           last_seen: u.last_seen,
           username: profile.full_name || profile.email?.split("@")[0] || "User",
           avatar_url: profile.avatar_url || null,
-          location: profile.location || null,
           bio: profile.bio || null,
-          socials: profile.socials || {},
           points: profile.points || 0,
-          created_at: profile.created_at,
-          dob: profile.dob,
         };
       });
 
-      const sorted = formattedUsers.sort((a, b) => {
-        const aTime = a.last_seen ? new Date(a.last_seen).getTime() : 0;
-        const bTime = b.last_seen ? new Date(b.last_seen).getTime() : 0;
-        return bTime - aTime;
-      });
-
-      setActiveUsers(sorted);
+      setActiveUsers(formattedUsers);
 
       if (currentUser) {
         setIsJoined(formattedUsers.some((u) => u.user_id === currentUser.id));
@@ -346,221 +271,21 @@ const HotspotDetailScreen = ({ route }) => {
     }
   };
 
-  // Send message (with reply support)
-  const sendMessage = async () => {
-    if (!newMessage.trim() || !currentUser) return;
-
-    setSendingMessage(true);
-    try {
-      const messageData = {
-        hotspot_id: hotspot.id,
-        user_id: currentUser.id,
-        content: newMessage.trim(),
-      };
-
-      // Add reply_to_message_id if replying to another message
-      if (replyingTo) {
-        messageData.reply_to_message_id = replyingTo.id;
-      }
-
-      const { error } = await supabase
-        .from("hotspot_messages")
-        .insert([messageData]);
-
-      if (error) throw error;
-
-      setNewMessage("");
-      setReplyingTo(null); // Clear reply state after sending
-      setSelectedReactionMessageId(null);
-      await fetchMessages();
-    } catch (error) {
-      console.error("Error sending message:", error);
-      Alert.alert("Error", "Failed to send message. Please try again.");
-    } finally {
-      setSendingMessage(false);
-    }
-  };
-
-  const handleConnect = (profile) => {
-    if (!profile) return;
-
-    Alert.alert(
-      "Connection requested",
-      `We'll let ${profile.username} know you want to connect.`,
-    );
-    setSelectedProfile(null);
-    setShowProfileAbout(false);
-    setShowProfileSocials(false);
-  };
-
-  // Join/leave hotspot
-  const toggleJoinHotspot = async () => {
-    if (!currentUser) {
-      Alert.alert("Error", "You must be logged in to join a hotspot");
-      return;
-    }
-
-    try {
-      // ===============================
-      // JOIN VALIDATION
-      // ===============================
-      if (!isJoined) {
-        if (!userLocation) {
-          const gotLocation = await requestUserLocation();
-          if (!gotLocation) {
-            Alert.alert(
-              "Location Required",
-              "We need your location to check if you're close enough to join this hotspot.",
-            );
-            return;
-          }
-        }
-
-        if (
-          userLocation &&
-          hotspot.latitude &&
-          hotspot.longitude &&
-          kmToFeet(
-            calculateDistance(
-              userLocation.latitude,
-              userLocation.longitude,
-              hotspot.latitude,
-              hotspot.longitude,
-            ),
-          ) > hotspotJoinDistance
-        ) {
-          const feetAway = Math.round(
-            kmToFeet(
-              calculateDistance(
-                userLocation.latitude,
-                userLocation.longitude,
-                hotspot.latitude,
-                hotspot.longitude,
-              ),
-            ),
-          );
-
-          Alert.alert(
-            "Too far to join",
-            `You must be within 500ft to join this hotspot. You're about ${feetAway}ft away.`,
-          );
-          return;
-        }
-      }
-
-      // ===============================
-      // LEAVE HOTSPOT
-      // ===============================
-      if (isJoined) {
-        const { error } = await supabase
-          .from("hotspot_active_users")
-          .delete()
-          .eq("hotspot_id", hotspot.id)
-          .eq("user_id", currentUser.id);
-
-        if (error) throw error;
-
-        setIsJoined(false);
-      }
-
-      // ===============================
-      // JOIN HOTSPOT
-      // ===============================
-      else {
-        // First, leave any other hotspots the user might be in
-        const { data: existingJoins } = await supabase
-          .from("hotspot_active_users")
-          .select("hotspot_id")
-          .eq("user_id", currentUser.id);
-
-        if (existingJoins && existingJoins.length > 0) {
-          // Leave all other hotspots
-          const { error: leaveError } = await supabase
-            .from("hotspot_active_users")
-            .delete()
-            .eq("user_id", currentUser.id);
-
-          if (leaveError) throw leaveError;
-        }
-
-        // Now join the new hotspot
-        const { error: joinError } = await supabase
-          .from("hotspot_active_users")
-          .upsert(
-            {
-              hotspot_id: hotspot.id,
-              user_id: currentUser.id,
-              last_seen: new Date().toISOString(),
-            },
-            { onConflict: "hotspot_id,user_id" },
-          );
-
-        if (joinError) throw joinError;
-
-        setIsJoined(true);
-
-        // ===============================
-        // POINTS (TRANSACTION ONLY)
-        // ===============================
-        try {
-          const today = new Date().toISOString().split("T")[0];
-
-          const { data: existingPoints } = await supabase
-            .from("points_transactions")
-            .select("id")
-            .eq("user_id", currentUser.id)
-            .eq("description", `Joined hotspot: ${hotspot.name}`)
-            .gte("created_at", today)
-            .maybeSingle();
-
-          if (!existingPoints) {
-            const { error: pointsError } = await supabase
-              .from("points_transactions")
-              .insert({
-                user_id: currentUser.id,
-                transaction_type: "earn",
-                points: 5,
-                description: `Joined hotspot: ${hotspot.name}`,
-              });
-
-            if (pointsError) throw pointsError;
-          }
-        } catch (pointsError) {
-          console.error("Points transaction failed:", pointsError);
-          // Do NOT block join if points fail
-        }
-      }
-
-      await fetchActiveUsers();
-    } catch (error) {
-      console.error("Error toggling hotspot join:", error);
-      Alert.alert("Error", "Failed to update hotspot status");
-    }
-  };
-
-  // Update presence every 2 minutes if joined
+  // Load data
   useEffect(() => {
-    if (!isJoined || !currentUser) return;
+    if (hotspot.id) {
+      fetchMessages();
+      fetchActiveUsers();
+      fetchWeeklyUserCount();
+    }
+  }, [hotspot.id, currentUser]);
 
-    const updatePresence = async () => {
-      await supabase
-        .from("hotspot_active_users")
-        .update({ last_seen: new Date().toISOString() })
-        .eq("hotspot_id", hotspot.id)
-        .eq("user_id", currentUser.id);
-    };
-
-    const interval = setInterval(updatePresence, 2 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, [isJoined, currentUser, hotspot.id]);
-
-  // Setup realtime subscriptions
+  // Realtime subscriptions
   useEffect(() => {
-    fetchMessages();
-    fetchActiveUsers();
+    if (!hotspot.id) return;
 
     const messagesChannel = supabase
-      .channel(`hotspot_messages:${hotspot.id}`)
+      .channel(`hotspot-messages-${hotspot.id}`)
       .on(
         "postgres_changes",
         {
@@ -569,14 +294,12 @@ const HotspotDetailScreen = ({ route }) => {
           table: "hotspot_messages",
           filter: `hotspot_id=eq.${hotspot.id}`,
         },
-        () => {
-          fetchMessages();
-        },
+        () => fetchMessages(),
       )
       .subscribe();
 
     const usersChannel = supabase
-      .channel(`hotspot_active_users:${hotspot.id}`)
+      .channel(`hotspot-users-${hotspot.id}`)
       .on(
         "postgres_changes",
         {
@@ -585,9 +308,7 @@ const HotspotDetailScreen = ({ route }) => {
           table: "hotspot_active_users",
           filter: `hotspot_id=eq.${hotspot.id}`,
         },
-        () => {
-          fetchActiveUsers();
-        },
+        () => fetchActiveUsers(),
       )
       .subscribe();
 
@@ -595,2485 +316,521 @@ const HotspotDetailScreen = ({ route }) => {
       supabase.removeChannel(messagesChannel);
       supabase.removeChannel(usersChannel);
     };
-  }, [hotspot.id, currentUser]);
+  }, [hotspot.id]);
 
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await Promise.all([fetchMessages(), fetchActiveUsers()]);
-    setRefreshing(false);
-  }, []);
-
-  // Helper Functions
-  const getInitials = (name) => {
-    if (!name) return "?";
-    const parts = name.split(" ");
-    if (parts.length >= 2) {
-      return (parts[0][0] + parts[1][0]).toUpperCase();
-    }
-    return name.slice(0, 2).toUpperCase();
-  };
-
-  const TIER_THRESHOLDS = {
-    LIGHTBLUE: 0,
-    BRONZE: 300,
-    SILVER: 800,
-    GOLD: 2000,
-    BLACK: 3500,
-  };
-
-  const calculateTier = (points = 0) => {
-    const currentPoints = points || 0;
-
-    if (currentPoints >= TIER_THRESHOLDS.BLACK) {
-      return {
-        tier: "black",
-        displayName: "BLACK",
-        pointsToNext: 0,
-        nextTierName: "MAX",
-      };
+  // Join/leave hotspot
+  const toggleJoinHotspot = async () => {
+    if (!currentUser) {
+      Alert.alert("Error", "You must be logged in");
+      return;
     }
 
-    if (currentPoints >= TIER_THRESHOLDS.GOLD) {
-      return {
-        tier: "gold",
-        displayName: "GOLD",
-        pointsToNext: TIER_THRESHOLDS.BLACK - currentPoints,
-        nextTierName: "BLACK",
-      };
-    }
+    try {
+      if (isJoined) {
+        const { error } = await supabase
+          .from("hotspot_active_users")
+          .delete()
+          .eq("hotspot_id", hotspot.id)
+          .eq("user_id", currentUser.id);
 
-    if (currentPoints >= TIER_THRESHOLDS.SILVER) {
-      return {
-        tier: "platinum",
-        displayName: "SILVER",
-        pointsToNext: TIER_THRESHOLDS.GOLD - currentPoints,
-        nextTierName: "GOLD",
-      };
-    }
+        if (error) throw error;
+        setIsJoined(false);
+      } else {
+        if (userLocation && hotspot.latitude && hotspot.longitude) {
+          const distMi = calculateDistance(
+            userLocation.latitude,
+            userLocation.longitude,
+            hotspot.latitude,
+            hotspot.longitude,
+          );
+          const distFeet = miToFeet(distMi);
 
-    if (currentPoints >= TIER_THRESHOLDS.BRONZE) {
-      return {
-        tier: "bronze",
-        displayName: "BRONZE",
-        pointsToNext: TIER_THRESHOLDS.SILVER - currentPoints,
-        nextTierName: "SILVER",
-      };
-    }
+          if (distFeet > 10000) {
+            Alert.alert(
+              "Too far away",
+              `You must be within 500ft to join. You're ${Math.round(distFeet)}ft away.`,
+            );
+            return;
+          }
+        }
 
-    return {
-      tier: "lightblue",
-      displayName: "BEGINNER",
-      pointsToNext: TIER_THRESHOLDS.BRONZE - currentPoints,
-      nextTierName: "BRONZE",
-    };
-  };
+        const now = new Date().toISOString();
 
-  const getTierPalette = (points = 0) => {
-    const { tier } = calculateTier(points);
-    const palette = {
-      lightblue: {
-        gradient: ["#CFEFFB", "#A5DAF4"],
-        text: "#072E46",
-        accent: "#7ED6FF",
-        shadow: "rgba(126, 214, 255, 0.25)",
-      },
-      bronze: {
-        gradient: ["#B08357", "#D19C65"],
-        text: "#4A2F18",
-        accent: "#D19C65",
-        shadow: "rgba(209, 156, 101, 0.28)",
-      },
-      platinum: {
-        gradient: ["#A8B2BC", "#C5CFD9"],
-        text: "#6B7780",
-        accent: "#C5CFD9",
-        shadow: "rgba(165, 181, 193, 0.28)",
-      },
-      gold: {
-        gradient: ["#B8986E", "#D4AF74"],
-        text: "#8B7355",
-        accent: "#D4AF74",
-        shadow: "rgba(212, 175, 116, 0.28)",
-      },
-      black: {
-        gradient: ["#2C2C2E", "#3A3A3C"],
-        text: "#8E8E93",
-        accent: "#6C6C70",
-        shadow: "rgba(108, 108, 112, 0.25)",
-      },
-    };
-
-    return palette[tier];
-  };
-
-  const profileTierConfig = {
-    lightblue: {
-      cardBg: "#CFEFFB",
-      textColor: "#072E46",
-      accentColor: "#7ED6FF",
-      embossColor: "rgba(4, 46, 70, 0.08)",
-    },
-    bronze: {
-      cardBg: "#B08357",
-      textColor: "#4A2F18",
-      accentColor: "#D19C65",
-      embossColor: "rgba(0, 0, 0, 0.12)",
-    },
-    black: {
-      cardBg: "#2C2C2E",
-      textColor: "#8E8E93",
-      accentColor: "#6C6C70",
-      embossColor: "rgba(0, 0, 0, 0.3)",
-    },
-    gold: {
-      cardBg: "#B8986E",
-      textColor: "#8B7355",
-      accentColor: "#D4AF74",
-      embossColor: "rgba(0, 0, 0, 0.15)",
-    },
-    platinum: {
-      cardBg: "#A8B2BC",
-      textColor: "#6B7780",
-      accentColor: "#C5CFD9",
-      embossColor: "rgba(0, 0, 0, 0.2)",
-    },
-  };
-
-  const calculateAgeFromDob = (dob) => {
-    if (!dob) return null;
-    const dobDate = new Date(dob);
-    if (Number.isNaN(dobDate.getTime())) return null;
-
-    const today = new Date();
-    let age = today.getFullYear() - dobDate.getFullYear();
-    const monthDiff = today.getMonth() - dobDate.getMonth();
-    const dayDiff = today.getDate() - dobDate.getDate();
-
-    if (monthDiff < 0 || (monthDiff === 0 && dayDiff < 0)) {
-      age -= 1;
-    }
-
-    return age >= 0 ? age : null;
-  };
-
-  const formatMemberSince = (createdAt) => {
-    if (!createdAt) return "N/A";
-    const date = new Date(createdAt);
-    const month = date.toLocaleString("en-US", { month: "short" });
-    const year = date.getFullYear();
-    return `${month} ${year}`;
-  };
-
-  const renderProfileCard = (profile) => {
-    if (!profile) return null;
-
-    const tierData = calculateTier(profile.points || 0);
-    const tierConfig =
-      profileTierConfig[tierData.tier] || profileTierConfig.lightblue;
-    const textColor = tierConfig.textColor;
-    const cardBg = tierConfig.cardBg;
-    const accent = tierConfig.accentColor;
-    const age = calculateAgeFromDob(profile.dob);
-    const CARD_WIDTH = Math.min(windowWidth - 40, 380);
-
-    return (
-      <View style={[styles.profileCardWrap, { width: CARD_WIDTH }]}>
-        <View
-          style={[
-            styles.profileCard,
+        // Update active users (temporary)
+        const { error: activeError } = await supabase
+          .from("hotspot_active_users")
+          .upsert(
             {
-              backgroundColor: cardBg,
-              width: CARD_WIDTH,
-              height: showProfileAbout ? "auto" : 220,
+              hotspot_id: hotspot.id,
+              user_id: currentUser.id,
+              last_seen: now,
+            },
+            { onConflict: "hotspot_id,user_id" },
+          );
+
+        if (activeError) throw activeError;
+
+        // Save to permanent visit history
+        const { error: historyError } = await supabase
+          .from("hotspot_visit_history")
+          .insert({
+            hotspot_id: hotspot.id,
+            user_id: currentUser.id,
+            visited_at: now,
+          });
+
+        if (historyError) throw historyError;
+        setIsJoined(true);
+
+        // Refresh weekly count
+        fetchWeeklyUserCount();
+
+        const today = new Date().toISOString().split("T")[0];
+        const { data: existingPoints } = await supabase
+          .from("points_transactions")
+          .select("id")
+          .eq("user_id", currentUser.id)
+          .eq("description", `Joined hotspot: ${hotspot.name}`)
+          .gte("created_at", today)
+          .maybeSingle();
+
+        if (!existingPoints) {
+          await supabase.from("points_transactions").insert({
+            user_id: currentUser.id,
+            transaction_type: "earn",
+            points: 5,
+            description: `Joined hotspot: ${hotspot.name}`,
+          });
+        }
+      }
+    } catch (error) {
+      console.error("Error toggling join:", error);
+      Alert.alert("Error", "Failed to update status");
+    }
+  };
+
+  const handleClose = () => {
+    Animated.timing(slideAnim, {
+      toValue: 1000,
+      duration: 250,
+      useNativeDriver: true,
+    }).start(() => {
+      navigation.goBack();
+    });
+  };
+
+  const getTimeAgo = (date) => {
+    const seconds = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
+    if (seconds < 60) return "just now";
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
+    return `${Math.floor(seconds / 86400)}d`;
+  };
+
+  return (
+    <>
+      <View style={styles.container}>
+        <TouchableOpacity
+          style={styles.backdrop}
+          activeOpacity={1}
+          onPress={handleClose}
+          pointerEvents="box-only"
+        />
+
+        <Animated.View
+          style={[
+            styles.card,
+            {
+              transform: [{ translateY: slideAnim }],
             },
           ]}
         >
-          <View
-            style={[
-              styles.profileEmboss,
-              { backgroundColor: tierConfig.embossColor },
-            ]}
-          />
+          {/* Drag Handle */}
+          <View style={styles.dragHandleContainer}>
+            <View style={styles.dragHandle} />
+          </View>
 
-          <View style={styles.profileTopSection}>
-            <View style={styles.profileSectionRow}>
-              <View style={styles.profileAvatarContainer}>
-                {profile.avatar_url ? (
-                  <Image
-                    source={{ uri: profile.avatar_url }}
-                    style={styles.profileAvatar}
-                  />
-                ) : (
-                  <View
-                    style={[
-                      styles.profileAvatarPlaceholder,
-                      { backgroundColor: accent },
-                    ]}
-                  >
-                    <FontAwesome6 name="user" size={20} color={textColor} />
-                  </View>
-                )}
-
-                <View
-                  style={[styles.profileAgeBadge, { backgroundColor: cardBg }]}
-                >
-                  <Text
-                    style={[styles.profileAgeBadgeText, { color: textColor }]}
-                  >
-                    {age ?? "--"}
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.profileNameSection}>
-                <Text
-                  style={[styles.profileName, { color: textColor }]}
-                  numberOfLines={1}
-                >
-                  {profile.username}
+          <ScrollView
+            style={styles.scrollView}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {/* Header */}
+            <View style={styles.header}>
+              <View style={styles.headerLeft}>
+                <Text style={styles.title}>{hotspot.name}</Text>
+                <Text style={styles.subtitle}>
+                  {(hotspot.type || hotspot.category)?.replace(/_/g, " ")} •{" "}
+                  {actualDistance || hotspot.distance || "nearby"}
                 </Text>
-                <View style={styles.profileStatusRow}>
-                  <View style={styles.profileActiveDot} />
-                  <Text
-                    style={[styles.profileStatusText, { color: textColor }]}
-                  >
-                    Active
+              </View>
+              <TouchableOpacity
+                onPress={handleClose}
+                style={styles.closeButton}
+              >
+                <FontAwesome6 name="xmark" size={20} color="#60A5FA" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Category Pills */}
+            <View style={styles.categoryPills}>
+              {categoryTags.map((tag) => (
+                <View key={tag} style={styles.categoryPill}>
+                  <Text style={styles.categoryPillText}>{tag}</Text>
+                </View>
+              ))}
+            </View>
+
+            {/* Live Activity Stats */}
+            <View style={styles.statsContainer}>
+              <View style={styles.statBox}>
+                <View style={styles.liveIndicator} />
+                <View style={styles.statContent}>
+                  <Text style={styles.statNumber}>{currentCount}</Text>
+                  <Text style={styles.statLabel}>Now</Text>
+                </View>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statBox}>
+                <FontAwesome6 name="users" size={16} color="#60A5FA" />
+                <View style={styles.statContent}>
+                  <Text style={styles.statNumber}>
+                    {weeklyUserCount !== null ? weeklyUserCount : "..."}
                   </Text>
+                  <Text style={styles.statLabel}>this week</Text>
                 </View>
               </View>
             </View>
-          </View>
 
-          <View style={styles.profileLocationConnectRow}>
-            <View
-              style={[styles.profileLocationChip, { backgroundColor: cardBg }]}
-            >
-              <FontAwesome6 name="location-dot" size={14} color={textColor} />
-              <Text
-                style={[styles.profileLocationText, { color: textColor }]}
-                numberOfLines={1}
+            {/* Live Chat Feed and Join Button */}
+            <View style={styles.actionSection}>
+              {/* Chat Feed */}
+              <TouchableOpacity
+                style={styles.chatFeed}
+                onPress={() => {
+                  console.log("Chat clicked, current state:", isChatModalOpen);
+                  setIsChatModalOpen(true);
+                }}
+                activeOpacity={0.8}
               >
-                {hotspot?.name || profile.location || ""}
-              </Text>
-            </View>
-
-            <TouchableOpacity
-              activeOpacity={0.7}
-              style={styles.profileConnectButton}
-              onPress={() => handleConnect(profile)}
-            >
-              <Text style={styles.profileConnectText}>Connect</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.profileActionButtons}>
-            <TouchableOpacity
-              activeOpacity={0.7}
-              onPress={() => {
-                console.log("Socials button pressed, profile:", profile);
-                setSelectedProfile(profile);
-                setShowProfileSocials(true);
-                // Don't close the profile modal - keep it in state
-              }}
-              style={[styles.profileActionButton, { backgroundColor: cardBg }]}
-            >
-              <FontAwesome6 name="link" size={12} color={textColor} />
-              <Text
-                style={[styles.profileActionButtonText, { color: textColor }]}
-              >
-                Socials
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              activeOpacity={0.7}
-              onPress={() => setShowProfileAbout(!showProfileAbout)}
-              style={[styles.profileActionButton, { backgroundColor: cardBg }]}
-            >
-              <FontAwesome6 name="circle-info" size={12} color={textColor} />
-              <Text
-                style={[styles.profileActionButtonText, { color: textColor }]}
-              >
-                About
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.profileTierBadge}>
-            <Text style={[styles.profileTierText, { color: textColor }]}>
-              {tierData.displayName}
-            </Text>
-            <Text style={[styles.profileTierLabel, { color: textColor }]}>
-              CARD
-            </Text>
-          </View>
-
-          <View style={styles.profileBrandingContainer}>
-            <Text style={[styles.profileBranding, { color: textColor }]}>
-              CLIQCARD
-            </Text>
-          </View>
-
-          {/* About Me Section (Expanded) */}
-          {showProfileAbout && (
-            <View
-              style={[
-                styles.profileAboutSection,
-                {
-                  backgroundColor: cardBg,
-                },
-              ]}
-            >
-              <Text style={[styles.profileBioText, { color: textColor }]}>
-                {profile.bio || "No bio added yet"}
-              </Text>
-            </View>
-          )}
-        </View>
-      </View>
-    );
-  };
-
-  const calculateDistance = (lat1, lon1, lat2, lon2) => {
-    const R = 6371;
-    const dLat = toRad(lat2 - lat1);
-    const dLon = toRad(lon2 - lon1);
-    const a =
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(toRad(lat1)) *
-        Math.cos(toRad(lat2)) *
-        Math.sin(dLon / 2) *
-        Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c;
-  };
-
-  const toRad = (value) => (value * Math.PI) / 180;
-
-  const getSocialURL = (platform, username) => {
-    const urls = {
-      instagram: `https://instagram.com/${username}`,
-      snapchat: `https://snapchat.com/add/${username}`,
-      linkedin: `https://linkedin.com/in/${username}`,
-      github: `https://github.com/${username}`,
-      twitter: `https://twitter.com/${username}`,
-      youtube: `https://youtube.com/@${username}`,
-    };
-    return urls[platform] || "";
-  };
-
-  const openSocialLink = async (platform, username) => {
-    const url = getSocialURL(platform, username);
-    if (url) {
-      const canOpen = await Linking.canOpenURL(url);
-      if (canOpen) {
-        await Linking.openURL(url);
-      } else {
-        Alert.alert("Error", `Unable to open ${platform}`);
-      }
-    }
-  };
-
-  const formatDistance = (distanceKm) => {
-    if (distanceKm < 1) {
-      return `${Math.round(distanceKm * 1000)}m`;
-    }
-    return `${distanceKm.toFixed(1)}km`;
-  };
-
-  const kmToFeet = (km) => km * 3280.839895;
-
-  function getTimeAgo(date) {
-    const seconds = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
-    if (seconds < 60) return "just now";
-    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-    return `${Math.floor(seconds / 86400)}d ago`;
-  }
-
-  const distanceKm =
-    userLocation && hotspot.latitude && hotspot.longitude
-      ? calculateDistance(
-          userLocation.latitude,
-          userLocation.longitude,
-          hotspot.latitude,
-          hotspot.longitude,
-        )
-      : null;
-
-  const distanceFt = distanceKm != null ? kmToFeet(distanceKm) : null;
-  const actualDistance =
-    distanceKm != null ? formatDistance(distanceKm) : hotspot.distance || null;
-  const canJoin =
-    distanceFt != null ? distanceFt <= hotspotJoinDistance : false;
-
-  if (loading) {
-    return (
-      <SafeAreaView style={styles.transparentRoot}>
-        <View style={styles.backdrop}>
-          <TouchableOpacity
-            style={styles.backdropTouchable}
-            onPress={() => navigation.goBack()}
-            activeOpacity={1}
-          />
-          <View style={[styles.sheetWrapper, styles.centerContent]}>
-            <ActivityIndicator size="large" color="#a855f7" />
-          </View>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  return (
-    <SafeAreaView style={styles.transparentRoot}>
-      <View style={styles.backdrop}>
-        <TouchableOpacity
-          style={styles.backdropTouchable}
-          onPress={() => navigation.goBack()}
-          activeOpacity={1}
-        />
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-          style={styles.sheetWrapper}
-          keyboardVerticalOffset={0}
-        >
-          <View style={styles.sheet}>
-            {/* Header with Gradient Border */}
-            <View style={styles.headerGradientWrapper}>
-              <LinearGradient
-                colors={["#a855f7", "#ec4899", "#f97316"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.headerGradient}
-              >
-                <View style={styles.headerContent}>
-                  <VStack flex={1} style={styles.headerTextContainer}>
-                    <Text style={styles.headerTitle}>{hotspot.name}</Text>
-                    <HStack space="xs" style={styles.badgesContainer}>
-                      <View style={styles.categoryBadge}>
-                        <Text style={styles.categoryBadgeText}>
-                          {hotspot.type?.replace(/_/g, " ")}
-                        </Text>
-                      </View>
-                      {actualDistance && (
-                        <View style={styles.distanceBadge}>
-                          <FontAwesome6
-                            name="location-dot"
-                            size={10}
-                            color="#fdba74"
-                          />
-                          <Text style={styles.distanceBadgeText}>
-                            {actualDistance}
-                          </Text>
-                        </View>
-                      )}
-                    </HStack>
-                  </VStack>
-
-                  <Pressable
-                    onPress={() => navigation.goBack()}
-                    style={styles.backButton}
-                  >
-                    <LinearGradient
-                      colors={["#ef4444", "#dc2626"]}
-                      style={styles.backButtonGradient}
-                    >
-                      <FontAwesome6 name="xmark" size={16} color="#fff" />
-                    </LinearGradient>
-                  </Pressable>
+                <View style={styles.chatHeader}>
+                  <FontAwesome6 name="message" size={16} color="#60A5FA" />
+                  <Text style={styles.chatTitle}>Live Chat</Text>
+                  <View style={styles.chatLiveIndicator} />
                 </View>
 
-                <HStack space="sm" style={styles.statusBadges}>
-                  <HStack space="sm" style={{ alignItems: "center" }}>
-                    <View style={styles.liveBadge}>
-                      <View style={styles.liveDotContainer}>
-                        <View style={styles.liveDot} />
-                        <View style={styles.liveDotPing} />
-                      </View>
-                      <Text style={styles.liveBadgeText}>LIVE</Text>
-                    </View>
-
-                    <View style={styles.activeUsersBadge}>
-                      <View style={styles.miniAvatarsContainer}>
-                        {activeUsers.slice(0, 3).map((user, i) => (
-                          <View
-                            key={user.user_id}
-                            style={[
-                              styles.miniAvatar,
-                              i > 0 && styles.miniAvatarOverlap,
-                            ]}
-                          >
-                            <LinearGradient
-                              colors={getGradientColors(i)}
-                              style={styles.miniAvatarGradient}
-                            />
+                {!isChatModalOpen ? (
+                  <>
+                    <View style={styles.chatMessages}>
+                      {messages
+                        .slice(0, showAllMessages ? messages.length : 2)
+                        .map((msg) => (
+                          <View key={msg.id} style={styles.chatMessage}>
+                            <Text style={styles.chatUser}>{msg.username}</Text>
+                            <Text style={styles.chatText}> {msg.content}</Text>
+                            <Text style={styles.chatTime}>
+                              {" "}
+                              {getTimeAgo(msg.created_at)}
+                            </Text>
                           </View>
                         ))}
-                      </View>
-                      <Text style={styles.activeUsersBadgeText}>
-                        {activeUsers.length} online
-                      </Text>
                     </View>
-                  </HStack>
-
-                  <Pressable
-                    onPress={toggleJoinHotspot}
-                    style={[
-                      styles.joinButton,
-                      !isJoined && !canJoin && styles.joinButtonDisabled,
-                    ]}
-                  >
-                    <LinearGradient
-                      colors={
-                        isJoined
-                          ? ["#ef4444", "#dc2626"]
-                          : ["#10b981", "#14b8a6"]
-                      }
-                      style={styles.joinButtonGradient}
-                    >
-                      <Text style={styles.joinButtonText}>
-                        {isJoined ? "Leave" : "Join"}
-                      </Text>
-                    </LinearGradient>
-                  </Pressable>
-                </HStack>
-              </LinearGradient>
-            </View>
-
-            {/* Tab-like navigation for People and Chat when joined */}
-            {isJoined && activeUsers.length > 0 ? (
-              <>
-                <View style={styles.tabBar}>
-                  <TouchableOpacity
-                    activeOpacity={1.0}
-                    onPress={() => setActiveTab("people")}
-                    style={[
-                      styles.tab,
-                      activeTab === "people" && styles.tabActive,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.tabText,
-                        activeTab === "people" && styles.tabTextActive,
-                      ]}
-                    >
-                      People here
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    activeOpacity={1.0}
-                    onPress={() => setActiveTab("chat")}
-                    style={[
-                      styles.tab,
-                      activeTab === "chat" && styles.tabActive,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.tabText,
-                        activeTab === "chat" && styles.tabTextActive,
-                      ]}
-                    >
-                      Chat
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-
-                {/* People Tab Content */}
-                {activeTab === "people" && (
-                  <View style={styles.peopleSection}>
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      contentContainerStyle={styles.peopleScroller}
-                    >
-                      {activeUsers.map((person) => {
-                        const palette =
-                          getTierPalette(person.points || 0) ||
-                          getTierPalette(0);
-                        const tierData = calculateTier(person.points || 0);
-                        const initials = getInitials(person.username);
-
-                        return (
-                          <TouchableOpacity
-                            key={person.user_id}
-                            activeOpacity={0.85}
-                            style={styles.personCardTouchable}
-                            onPress={() => setSelectedProfile(person)}
-                          >
-                            <LinearGradient
-                              colors={
-                                palette?.gradient || ["#1f2937", "#0f172a"]
-                              }
-                              style={styles.personCard}
-                            >
-                              <View style={styles.personCardTop}>
-                                <View style={styles.personAvatarContainer}>
-                                  {person.avatar_url ? (
-                                    <Image
-                                      source={{ uri: person.avatar_url }}
-                                      style={styles.personAvatar}
-                                    />
-                                  ) : (
-                                    <View style={styles.personAvatarFallback}>
-                                      <Text style={styles.personInitials}>
-                                        {initials}
-                                      </Text>
-                                    </View>
-                                  )}
-                                </View>
-
-                                <View style={styles.personMeta}>
-                                  <Text
-                                    numberOfLines={1}
-                                    style={[
-                                      styles.personName,
-                                      { color: palette?.text || "#fff" },
-                                    ]}
-                                  >
-                                    {person.username}
-                                  </Text>
-                                  <Text
-                                    numberOfLines={1}
-                                    style={styles.personLocation}
-                                  >
-                                    {person.location || ""}
-                                  </Text>
-                                </View>
-                              </View>
-
-                              <View style={styles.personFooter}>
-                                <View style={styles.personTierBadge}>
-                                  <Text style={styles.personTierText}>
-                                    {tierData.displayName}
-                                  </Text>
-                                </View>
-                              </View>
-                            </LinearGradient>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </ScrollView>
-                  </View>
-                )}
-
-                {/* Chat Tab Content */}
-                {activeTab === "chat" && (
-                  <ScrollView
-                    style={styles.content}
-                    refreshControl={
-                      <RefreshControl
-                        refreshing={refreshing}
-                        onRefresh={onRefresh}
-                      />
-                    }
-                    onScrollBeginDrag={() => setSelectedReactionMessageId(null)}
-                  >
-                    <Box style={styles.messagesSection}>
-                      <VStack space="xs" style={styles.messagesContainer}>
-                        {messages.length > 0 ? (
-                          messages.map((message) => {
-                            // System messages
-                            if (message.type === "system") {
-                              return (
-                                <View
-                                  key={message.id}
-                                  style={{ paddingVertical: 8 }}
-                                >
-                                  <Text
-                                    style={{
-                                      textAlign: "center",
-                                      color: "#94a3b8",
-                                      fontSize: 12,
-                                    }}
-                                  >
-                                    {message.content}
-                                  </Text>
-                                </View>
-                              );
-                            }
-
-                            // Pinned messages
-                            if (message.type === "pinned" || message.pinned) {
-                              return (
-                                <View
-                                  key={message.id}
-                                  style={styles.pinnedCard}
-                                >
-                                  <HStack alignItems="flex-start" space="sm">
-                                    {message.avatar_url ? (
-                                      <Image
-                                        source={{ uri: message.avatar_url }}
-                                        style={[
-                                          styles.pinnedAvatar,
-                                          styles.avatarImage,
-                                        ]}
-                                      />
-                                    ) : (
-                                      <Avatar
-                                        size="sm"
-                                        style={styles.pinnedAvatar}
-                                      >
-                                        <Text style={styles.avatarText}>
-                                          {getInitials(message.username)}
-                                        </Text>
-                                      </Avatar>
-                                    )}
-                                    <VStack flex={1}>
-                                      <HStack
-                                        alignItems="center"
-                                        justifyContent="space-between"
-                                      >
-                                        <HStack alignItems="center" space="xs">
-                                          <FontAwesome6
-                                            name="thumbtack"
-                                            size={14}
-                                            color="#f59e0b"
-                                          />
-                                          <Text style={styles.messageUsername}>
-                                            {message.username}
-                                          </Text>
-                                          <Text style={styles.pinnedLabel}>
-                                            PINNED
-                                          </Text>
-                                        </HStack>
-                                        <Text style={styles.messageTime}>
-                                          {getTimeAgo(
-                                            new Date(
-                                              message.created_at || Date.now(),
-                                            ),
-                                          )}
-                                        </Text>
-                                      </HStack>
-                                      <Text style={styles.pinnedText}>
-                                        {message.content}
-                                      </Text>
-                                    </VStack>
-                                  </HStack>
-                                </View>
-                              );
-                            }
-
-                            // Regular messages
-                            const isOwnMessage =
-                              currentUser && message.user_id === currentUser.id;
-                            const isSelected =
-                              selectedReactionMessageId === message.id;
-
-                            return (
-                              <View
-                                key={message.id}
-                                style={styles.messageWrapper}
-                              >
-                                <TouchableOpacity
-                                  activeOpacity={0.85}
-                                  onPress={() => toggleReactionBar(message.id)}
-                                >
-                                  <HStack alignItems="flex-start" space="sm">
-                                    {message.avatar_url ? (
-                                      <Image
-                                        source={{ uri: message.avatar_url }}
-                                        style={[
-                                          styles.messageAvatar,
-                                          styles.avatarImage,
-                                        ]}
-                                      />
-                                    ) : (
-                                      <Avatar
-                                        size="sm"
-                                        bg={getRandomColor()}
-                                        style={styles.messageAvatar}
-                                      >
-                                        <Text style={styles.avatarText}>
-                                          {getInitials(message.username)}
-                                        </Text>
-                                      </Avatar>
-                                    )}
-                                    <VStack flex={1}>
-                                      <HStack
-                                        justifyContent="space-between"
-                                        alignItems="center"
-                                      >
-                                        <Text style={styles.messageUsername}>
-                                          {isOwnMessage
-                                            ? "You"
-                                            : message.username}
-                                        </Text>
-                                        <HStack alignItems="center">
-                                          <Text style={styles.messageTime}>
-                                            {getTimeAgo(
-                                              new Date(
-                                                message.created_at ||
-                                                  Date.now(),
-                                              ),
-                                            )}
-                                          </Text>
-                                          <TouchableOpacity
-                                            style={{ marginLeft: 10 }}
-                                            onPress={() => handleReply(message)}
-                                          >
-                                            <FontAwesome6
-                                              name="reply"
-                                              size={14}
-                                              color="#94a3b8"
-                                            />
-                                          </TouchableOpacity>
-                                        </HStack>
-                                      </HStack>
-
-                                      {/* Reply preview */}
-                                      {message.reply_to_message_id && (
-                                        <View style={styles.replyIndicator}>
-                                          <Text
-                                            style={styles.replyIndicatorTitle}
-                                          >
-                                            Replying to{" "}
-                                            {message.reply_to_username ||
-                                              "someone"}
-                                          </Text>
-                                          <Text
-                                            numberOfLines={1}
-                                            style={styles.replyIndicatorText}
-                                          >
-                                            {message.reply_to_content}
-                                          </Text>
-                                        </View>
-                                      )}
-
-                                      <Text style={styles.messageText}>
-                                        {message.content}
-                                      </Text>
-
-                                      {/* Reaction chips */}
-                                      {message.reactions &&
-                                        message.reactions.length > 0 && (
-                                          <HStack style={styles.reactionChips}>
-                                            {message.reactions.map((r, idx) => {
-                                              const userReacted =
-                                                currentUser &&
-                                                r.userIds?.includes(
-                                                  currentUser.id,
-                                                );
-                                              return (
-                                                <TouchableOpacity
-                                                  key={idx}
-                                                  style={[
-                                                    styles.reactionChip,
-                                                    userReacted &&
-                                                      styles.reactionChipActive,
-                                                  ]}
-                                                  onPress={() =>
-                                                    handleAddReaction(
-                                                      message.id,
-                                                      r.emoji,
-                                                    )
-                                                  }
-                                                >
-                                                  <Text
-                                                    style={
-                                                      styles.reactionChipEmoji
-                                                    }
-                                                  >
-                                                    {r.emoji}
-                                                  </Text>
-                                                  <Text
-                                                    style={
-                                                      styles.reactionChipCount
-                                                    }
-                                                  >
-                                                    {r.count}
-                                                  </Text>
-                                                </TouchableOpacity>
-                                              );
-                                            })}
-                                          </HStack>
-                                        )}
-                                    </VStack>
-                                  </HStack>
-                                </TouchableOpacity>
-
-                                {/* Reaction bar */}
-                                {isSelected && (
-                                  <ScrollView
-                                    horizontal
-                                    showsHorizontalScrollIndicator={false}
-                                    style={styles.reactionBar}
-                                    contentContainerStyle={
-                                      styles.reactionBarContent
-                                    }
-                                  >
-                                    {[
-                                      "🔥",
-                                      "👀",
-                                      "💯",
-                                      "❤️",
-                                      "😂",
-                                      "👏",
-                                      "✨",
-                                      "🎉",
-                                      "😍",
-                                      "🤔",
-                                      "👍",
-                                      "🙌",
-                                    ].map((emoji) => (
-                                      <TouchableOpacity
-                                        key={emoji}
-                                        style={styles.reactionBubble}
-                                        onPress={() =>
-                                          handleAddReaction(message.id, emoji)
-                                        }
-                                      >
-                                        <Text
-                                          style={styles.reactionBubbleEmoji}
-                                        >
-                                          {emoji}
-                                        </Text>
-                                      </TouchableOpacity>
-                                    ))}
-                                  </ScrollView>
-                                )}
-                              </View>
-                            );
-                          })
-                        ) : (
-                          <Box style={styles.noMessages}>
-                            <FontAwesome6
-                              name="comments"
-                              size={40}
-                              color="#475569"
-                            />
-                            <Text style={styles.noMessagesText}>
-                              No messages yet. Start the conversation!
-                            </Text>
-                          </Box>
-                        )}
-                      </VStack>
-                    </Box>
-                  </ScrollView>
-                )}
-              </>
-            ) : (
-              /* Original layout when not joined */
-              <>
-                {activeUsers.length > 0 && (
-                  <View style={styles.peopleSection}>
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      contentContainerStyle={styles.peopleScroller}
-                    >
-                      {activeUsers.map((person) => {
-                        const palette =
-                          getTierPalette(person.points || 0) ||
-                          getTierPalette(0);
-                        const tierData = calculateTier(person.points || 0);
-                        const initials = getInitials(person.username);
-
-                        return (
-                          <TouchableOpacity
-                            key={person.user_id}
-                            activeOpacity={0.85}
-                            style={styles.personCardTouchable}
-                            onPress={() => setSelectedProfile(person)}
-                          >
-                            <LinearGradient
-                              colors={
-                                palette?.gradient || ["#1f2937", "#0f172a"]
-                              }
-                              style={styles.personCard}
-                            >
-                              <View style={styles.personCardTop}>
-                                <View style={styles.personAvatarContainer}>
-                                  {person.avatar_url ? (
-                                    <Image
-                                      source={{ uri: person.avatar_url }}
-                                      style={styles.personAvatar}
-                                    />
-                                  ) : (
-                                    <View style={styles.personAvatarFallback}>
-                                      <Text style={styles.personInitials}>
-                                        {initials}
-                                      </Text>
-                                    </View>
-                                  )}
-                                </View>
-
-                                <View style={styles.personMeta}>
-                                  <Text
-                                    numberOfLines={1}
-                                    style={[
-                                      styles.personName,
-                                      { color: palette?.text || "#fff" },
-                                    ]}
-                                  >
-                                    {person.username}
-                                  </Text>
-                                  <Text
-                                    numberOfLines={1}
-                                    style={styles.personLocation}
-                                  >
-                                    {person.location || ""}
-                                  </Text>
-                                </View>
-                              </View>
-
-                              <View style={styles.personFooter}>
-                                <View style={styles.personTierBadge}>
-                                  <Text style={styles.personTierText}>
-                                    {tierData.displayName}
-                                  </Text>
-                                </View>
-                              </View>
-                            </LinearGradient>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </ScrollView>
-                  </View>
-                )}
-
-                <View style={styles.chatHeader}>
-                  <Text style={styles.peopleTitle}>Chat</Text>
-                </View>
-
-                <ScrollView
-                  style={styles.content}
-                  refreshControl={
-                    <RefreshControl
-                      refreshing={refreshing}
-                      onRefresh={onRefresh}
-                    />
-                  }
-                  onScrollBeginDrag={() => setSelectedReactionMessageId(null)}
-                >
-                  <Box style={styles.messagesSection}>
-                    <VStack space="xs" style={styles.messagesContainer}>
-                      {messages.length > 0 ? (
-                        messages.map((message) => {
-                          // System messages
-                          if (message.type === "system") {
-                            return (
-                              <View
-                                key={message.id}
-                                style={{ paddingVertical: 8 }}
-                              >
-                                <Text
-                                  style={{
-                                    textAlign: "center",
-                                    color: "#94a3b8",
-                                    fontSize: 12,
-                                  }}
-                                >
-                                  {message.content}
-                                </Text>
-                              </View>
-                            );
-                          }
-
-                          // Pinned messages
-                          if (message.type === "pinned" || message.pinned) {
-                            return (
-                              <View key={message.id} style={styles.pinnedCard}>
-                                <HStack alignItems="flex-start" space="sm">
-                                  {message.avatar_url ? (
-                                    <Image
-                                      source={{ uri: message.avatar_url }}
-                                      style={[
-                                        styles.pinnedAvatar,
-                                        styles.avatarImage,
-                                      ]}
-                                    />
-                                  ) : (
-                                    <Avatar
-                                      size="sm"
-                                      style={styles.pinnedAvatar}
-                                    >
-                                      <Text style={styles.avatarText}>
-                                        {getInitials(message.username)}
-                                      </Text>
-                                    </Avatar>
-                                  )}
-                                  <VStack flex={1}>
-                                    <HStack
-                                      alignItems="center"
-                                      justifyContent="space-between"
-                                    >
-                                      <HStack alignItems="center" space="xs">
-                                        <FontAwesome6
-                                          name="thumbtack"
-                                          size={14}
-                                          color="#f59e0b"
-                                        />
-                                        <Text style={styles.messageUsername}>
-                                          {message.username}
-                                        </Text>
-                                        <Text style={styles.pinnedLabel}>
-                                          PINNED
-                                        </Text>
-                                      </HStack>
-                                      <Text style={styles.messageTime}>
-                                        {getTimeAgo(
-                                          new Date(
-                                            message.created_at || Date.now(),
-                                          ),
-                                        )}
-                                      </Text>
-                                    </HStack>
-                                    <Text style={styles.pinnedText}>
-                                      {message.content}
-                                    </Text>
-                                  </VStack>
-                                </HStack>
-                              </View>
-                            );
-                          }
-
-                          // Regular messages
-                          const isOwnMessage =
-                            currentUser && message.user_id === currentUser.id;
-                          const isSelected =
-                            selectedReactionMessageId === message.id;
-
-                          return (
-                            <View
-                              key={message.id}
-                              style={styles.messageWrapper}
-                            >
-                              <TouchableOpacity
-                                activeOpacity={0.85}
-                                onPress={() => toggleReactionBar(message.id)}
-                              >
-                                <HStack alignItems="flex-start" space="sm">
-                                  {message.avatar_url ? (
-                                    <Image
-                                      source={{ uri: message.avatar_url }}
-                                      style={[
-                                        styles.messageAvatar,
-                                        styles.avatarImage,
-                                      ]}
-                                    />
-                                  ) : (
-                                    <Avatar
-                                      size="sm"
-                                      bg={getRandomColor()}
-                                      style={styles.messageAvatar}
-                                    >
-                                      <Text style={styles.avatarText}>
-                                        {getInitials(message.username)}
-                                      </Text>
-                                    </Avatar>
-                                  )}
-                                  <VStack flex={1}>
-                                    <HStack
-                                      justifyContent="space-between"
-                                      alignItems="center"
-                                    >
-                                      <Text style={styles.messageUsername}>
-                                        {isOwnMessage
-                                          ? "You"
-                                          : message.username}
-                                      </Text>
-                                      <HStack alignItems="center">
-                                        <Text style={styles.messageTime}>
-                                          {getTimeAgo(
-                                            new Date(
-                                              message.created_at || Date.now(),
-                                            ),
-                                          )}
-                                        </Text>
-                                        <TouchableOpacity
-                                          style={{ marginLeft: 10 }}
-                                          onPress={() => handleReply(message)}
-                                        >
-                                          <FontAwesome6
-                                            name="reply"
-                                            size={14}
-                                            color="#94a3b8"
-                                          />
-                                        </TouchableOpacity>
-                                      </HStack>
-                                    </HStack>
-
-                                    {/* Reply preview */}
-                                    {message.reply_to_message_id && (
-                                      <View style={styles.replyIndicator}>
-                                        <Text
-                                          style={styles.replyIndicatorTitle}
-                                        >
-                                          Replying to{" "}
-                                          {message.reply_to_username ||
-                                            "someone"}
-                                        </Text>
-                                        <Text
-                                          numberOfLines={1}
-                                          style={styles.replyIndicatorText}
-                                        >
-                                          {message.reply_to_content}
-                                        </Text>
-                                      </View>
-                                    )}
-
-                                    <Text style={styles.messageText}>
-                                      {message.content}
-                                    </Text>
-
-                                    {/* Reaction chips */}
-                                    {message.reactions &&
-                                      message.reactions.length > 0 && (
-                                        <HStack style={styles.reactionChips}>
-                                          {message.reactions.map((r, idx) => {
-                                            const userReacted =
-                                              currentUser &&
-                                              r.userIds?.includes(
-                                                currentUser.id,
-                                              );
-                                            return (
-                                              <TouchableOpacity
-                                                key={idx}
-                                                style={[
-                                                  styles.reactionChip,
-                                                  userReacted &&
-                                                    styles.reactionChipActive,
-                                                ]}
-                                                onPress={() =>
-                                                  handleAddReaction(
-                                                    message.id,
-                                                    r.emoji,
-                                                  )
-                                                }
-                                              >
-                                                <Text
-                                                  style={
-                                                    styles.reactionChipEmoji
-                                                  }
-                                                >
-                                                  {r.emoji}
-                                                </Text>
-                                                <Text
-                                                  style={
-                                                    styles.reactionChipCount
-                                                  }
-                                                >
-                                                  {r.count}
-                                                </Text>
-                                              </TouchableOpacity>
-                                            );
-                                          })}
-                                        </HStack>
-                                      )}
-                                  </VStack>
-                                </HStack>
-                              </TouchableOpacity>
-
-                              {/* Reaction bar */}
-                              {isSelected && (
-                                <ScrollView
-                                  horizontal
-                                  showsHorizontalScrollIndicator={false}
-                                  style={styles.reactionBar}
-                                  contentContainerStyle={
-                                    styles.reactionBarContent
-                                  }
-                                >
-                                  {[
-                                    "🔥",
-                                    "👀",
-                                    "💯",
-                                    "❤️",
-                                    "😂",
-                                    "👏",
-                                    "✨",
-                                    "🎉",
-                                    "😍",
-                                    "🤔",
-                                    "👍",
-                                    "🙌",
-                                  ].map((emoji) => (
-                                    <TouchableOpacity
-                                      key={emoji}
-                                      style={styles.reactionBubble}
-                                      onPress={() =>
-                                        handleAddReaction(message.id, emoji)
-                                      }
-                                    >
-                                      <Text style={styles.reactionBubbleEmoji}>
-                                        {emoji}
-                                      </Text>
-                                    </TouchableOpacity>
-                                  ))}
-                                </ScrollView>
-                              )}
-                            </View>
-                          );
-                        })
-                      ) : (
-                        <Box style={styles.noMessages}>
-                          <FontAwesome6
-                            name="comments"
-                            size={40}
-                            color="#475569"
-                          />
-                          <Text style={styles.noMessagesText}>
-                            No messages yet. Start the conversation!
-                          </Text>
-                        </Box>
-                      )}
-                    </VStack>
-                  </Box>
-                </ScrollView>
-              </>
-            )}
-
-            {selectedProfile && (
-              <Modal
-                animationType="fade"
-                transparent
-                visible={!!selectedProfile}
-                onRequestClose={() => setSelectedProfile(null)}
-              >
-                <View style={styles.profileModalOverlay}>
-                  <TouchableOpacity
-                    style={styles.profileModalBackdrop}
-                    activeOpacity={1}
-                    onPress={() => {
-                      setSelectedProfile(null);
-                      setShowProfileAbout(false);
-                      setShowProfileSocials(false);
-                    }}
-                  />
-                  <View style={styles.profileModalContent}>
-                    {renderProfileCard(selectedProfile)}
-                  </View>
-
-                  {/* Socials Modal - Inside profile modal so it appears on top */}
-                  {showProfileSocials && (
-                    <View
-                      style={[
-                        styles.socialsModalBackdrop,
-                        {
-                          position: "absolute",
-                          top: 0,
-                          left: 0,
-                          right: 0,
-                          bottom: 0,
-                        },
-                      ]}
-                    >
+                    {!showAllMessages && messages.length > 2 && (
                       <TouchableOpacity
-                        style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)" }}
-                        activeOpacity={1}
-                        onPress={() => setShowProfileSocials(false)}
-                      />
-                      <View style={[styles.socialsModal, { marginTop: 0 }]}>
-                        <View style={styles.socialsModalHeader}>
-                          <Text style={styles.socialsModalTitle}>
-                            Connect With Me
-                          </Text>
-                          <TouchableOpacity
-                            onPress={() => setShowProfileSocials(false)}
-                          >
-                            <FontAwesome6 name="xmark" size={20} color="#666" />
-                          </TouchableOpacity>
-                        </View>
-
-                        <ScrollView
-                          style={{ maxHeight: "100%", minHeight: 200, flex: 1 }}
-                        >
-                          {(() => {
-                            const socials = [
-                              {
-                                key: "instagram",
-                                label: "Instagram",
-                                icon: "instagram",
-                              },
-                              {
-                                key: "snapchat",
-                                label: "Snapchat",
-                                icon: "snapchat",
-                              },
-                              {
-                                key: "linkedin",
-                                label: "LinkedIn",
-                                icon: "linkedin-in",
-                              },
-                              {
-                                key: "github",
-                                label: "GitHub",
-                                icon: "github",
-                              },
-                              {
-                                key: "twitter",
-                                label: "Twitter / X",
-                                icon: "twitter",
-                              },
-                              {
-                                key: "youtube",
-                                label: "YouTube",
-                                icon: "youtube",
-                              },
-                            ];
-
-                            const socialItems = socials
-                              .map((s) => {
-                                const value = selectedProfile?.socials?.[s.key];
-                                if (!value) return null;
-
-                                return (
-                                  <View key={s.key} style={styles.socialsRow}>
-                                    <View style={styles.socialsIconContainer}>
-                                      <FontAwesome6
-                                        name={s.icon}
-                                        size={18}
-                                        color="#666"
-                                      />
-                                    </View>
-                                    <TouchableOpacity
-                                      style={styles.socialsLink}
-                                      onPress={() =>
-                                        openSocialLink(s.key, value)
-                                      }
-                                    >
-                                      <Text style={styles.socialsValue}>
-                                        {value}
-                                      </Text>
-                                      <FontAwesome6
-                                        name="arrow-up-right-from-square"
-                                        size={14}
-                                        color="#007AFF"
-                                      />
-                                    </TouchableOpacity>
-                                  </View>
-                                );
-                              })
-                              .filter(Boolean);
-
-                            if (socialItems.length === 0) {
-                              return (
-                                <View
-                                  style={{
-                                    paddingVertical: 40,
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                  }}
-                                >
-                                  <FontAwesome6
-                                    name="link"
-                                    size={40}
-                                    color="#CCC"
-                                    style={{ marginBottom: 12 }}
-                                  />
-                                  <Text
-                                    style={{
-                                      fontSize: 16,
-                                      color: "#999",
-                                      fontWeight: "600",
-                                    }}
-                                  >
-                                    No social links added yet
-                                  </Text>
-                                  <Text
-                                    style={{
-                                      fontSize: 14,
-                                      color: "#BBB",
-                                      marginTop: 4,
-                                    }}
-                                  >
-                                    This user hasn't shared any socials
-                                  </Text>
-                                </View>
-                              );
-                            }
-
-                            return socialItems;
-                          })()}
-                        </ScrollView>
-
-                        <View style={styles.socialsModalActions}>
-                          <TouchableOpacity
-                            activeOpacity={0.7}
-                            onPress={() => setShowProfileSocials(false)}
-                            style={styles.socialsCancel}
-                          >
-                            <Text style={styles.socialsCancelText}>Close</Text>
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                    </View>
-                  )}
-                </View>
-              </Modal>
-            )}
-
-            {/* Bottom Input Section */}
-            <View style={styles.bottomSection}>
-              {/* Reply Preview Banner */}
-              {replyingTo && (
-                <View style={styles.replyPreview}>
-                  <View style={styles.replyPreviewRow}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.replyPreviewText}>
-                        Replying to {replyingTo.username}
-                      </Text>
-                      <Text
-                        numberOfLines={1}
-                        style={styles.replyPreviewContent}
+                        onPress={(e) => setShowAllMessages(true)}
                       >
-                        {replyingTo.content}
-                      </Text>
-                    </View>
-                    <TouchableOpacity onPress={() => setReplyingTo(null)}>
-                      <FontAwesome6 name="xmark" size={16} color="#f59e0b" />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              )}
-
-              {/* Message Input */}
-              {activeTab == "chat" && (
-                <HStack space="sm" style={styles.inputContainer}>
-                  <View style={styles.messageInputWrapper}>
-                    <Input style={styles.messageInputContainer} flex={1}>
-                      <InputField
-                        placeholder="Say something to people here…"
-                        value={newMessage}
-                        onChangeText={setNewMessage}
-                        placeholderTextColor="#64748b"
-                        style={styles.messageInput}
-                        onSubmitEditing={sendMessage}
-                        editable={!sendingMessage}
-                      />
-                    </Input>
-                  </View>
-                  <TouchableOpacity
-                    style={[
-                      styles.sendButton,
-                      (!newMessage.trim() || sendingMessage) &&
-                        styles.sendButtonDisabled,
-                    ]}
-                    onPress={sendMessage}
-                    disabled={!newMessage.trim() || sendingMessage}
-                  >
-                    {sendingMessage ? (
-                      <ActivityIndicator size="small" color="#fff" />
-                    ) : (
-                      <LinearGradient
-                        colors={
-                          newMessage.trim()
-                            ? ["#f59e0b", "#d97706"]
-                            : ["#334155", "#334155"]
-                        }
-                        style={styles.sendButtonGradient}
-                      >
-                        <FontAwesome6
-                          name="paper-plane"
-                          size={18}
-                          color="#fff"
-                        />
-                      </LinearGradient>
+                        <Text style={styles.viewMore}>View more...</Text>
+                      </TouchableOpacity>
                     )}
-                  </TouchableOpacity>
-                </HStack>
-              )}
+                    <Text style={styles.chatPrompt}>
+                      Click to join conversation
+                    </Text>
+                  </>
+                ) : (
+                  <View style={styles.chatMessages}>
+                    {messages.map((msg) => (
+                      <View key={msg.id} style={styles.chatMessage}>
+                        <Text
+                          style={[
+                            styles.chatUser,
+                            msg.user_id === currentUser?.id &&
+                              styles.chatUserSelf,
+                          ]}
+                        >
+                          {msg.username}
+                        </Text>
+                        <Text style={styles.chatText}> {msg.content}</Text>
+                        <Text style={styles.chatTime}>
+                          {" "}
+                          {getTimeAgo(msg.created_at)}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </TouchableOpacity>
+
+              {/* Join Button */}
+              <TouchableOpacity onPress={toggleJoinHotspot} activeOpacity={0.8}>
+                <LinearGradient
+                  colors={
+                    isJoined ? ["#EF4444", "#DC2626"] : ["#3B82F6", "#2563EB"]
+                  }
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.joinButton}
+                >
+                  <FontAwesome6 name="credit-card" size={20} color="white" />
+                  <Text style={styles.joinButtonText}>
+                    {isJoined ? "Leave" : "Join"}
+                    {"\n"}Hotspot
+                  </Text>
+                </LinearGradient>
+              </TouchableOpacity>
             </View>
-          </View>
-        </KeyboardAvoidingView>
+          </ScrollView>
+        </Animated.View>
       </View>
-    </SafeAreaView>
+
+      {/* Chat Modal */}
+      {isChatModalOpen && (
+        <ChatFeedModal
+          hotspot={hotspot}
+          messages={messages}
+          setMessages={setMessages}
+          onClose={() => setIsChatModalOpen(false)}
+        />
+      )}
+    </>
   );
 };
 
-// Helper Functions
-const getRandomColor = () => {
-  const colors = ["#a855f7", "#f59e0b", "#ef4444", "#3b82f6", "#10b981"];
-  return colors[Math.floor(Math.random() * colors.length)];
-};
-
-const getGradientColors = (index) => {
-  const gradients = [
-    ["#10b981", "#14b8a6"],
-    ["#a855f7", "#ec4899"],
-    ["#f97316", "#fbbf24"],
-  ];
-  return gradients[index % gradients.length];
-};
-
-// Styles
 const styles = StyleSheet.create({
-  transparentRoot: {
-    flex: 1,
-    backgroundColor: "transparent",
+  container: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "flex-end",
   },
   backdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.35)",
-    justifyContent: "flex-end",
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "transparent",
   },
-  backdropTouchable: {
-    flex: 1,
-  },
-  sheetWrapper: {
-    height: "100%",
-  },
-  sheet: {
-    flex: 1,
-    backgroundColor: "#0f172a",
+  card: {
+    backgroundColor: "#18181B", // zinc-900
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    overflow: "hidden",
-  },
-  centerContent: {
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  headerGradientWrapper: {
-    padding: 3,
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
-  },
-  headerGradient: {
-    borderRadius: 21,
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    borderBottomWidth: 4,
-    borderBottomColor: "rgba(255, 255, 255, 0.1)",
-  },
-  headerContent: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    marginBottom: 10,
-  },
-  backButton: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    zIndex: 10,
-  },
-  backButtonGradient: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 3,
-    borderColor: "#0f172a",
-  },
-  headerTextContainer: {
-    flex: 1,
-    paddingRight: 44,
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "900",
-    color: "#fff",
-    marginBottom: 8,
-  },
-  badgesContainer: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-  },
-  categoryBadge: {
-    backgroundColor: "rgba(168, 85, 247, 0.2)",
-    paddingHorizontal: 10,
-    paddingVertical: 2,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: "rgba(168, 85, 247, 0.3)",
-  },
-  categoryBadgeText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#c084fc",
-    textTransform: "capitalize",
-  },
-  distanceBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(249, 115, 22, 0.2)",
-    paddingHorizontal: 10,
-    paddingVertical: 2,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: "rgba(249, 115, 22, 0.3)",
-    gap: 4,
-  },
-  distanceBadgeText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#fdba74",
-  },
-  statusBadges: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-    marginTop: 8,
-  },
-  liveBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(239, 68, 68, 0.3)",
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: "rgba(239, 68, 68, 0.5)",
-    gap: 6,
-  },
-  liveDotContainer: {
-    position: "relative",
-    width: 8,
-    height: 8,
-  },
-  liveDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#fca5a5",
-  },
-  liveDotPing: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#fca5a5",
-    opacity: 0.75,
-  },
-  liveBadgeText: {
-    fontSize: 11,
-    fontWeight: "900",
-    color: "#fca5a5",
-    letterSpacing: 1,
-  },
-  activeUsersBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(16, 185, 129, 0.3)",
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: "rgba(16, 185, 129, 0.5)",
-    gap: 8,
-  },
-  miniAvatarsContainer: {
-    flexDirection: "row",
-  },
-  miniAvatar: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    overflow: "hidden",
-    borderWidth: 2,
-    borderColor: "#0f172a",
-  },
-  miniAvatarOverlap: {
-    marginLeft: -6,
-  },
-  miniAvatarGradient: {
-    width: "100%",
-    height: "100%",
-  },
-  activeUsersBadgeText: {
-    fontSize: 11,
-    fontWeight: "900",
-    color: "#6ee7b7",
-  },
-  content: {
-    flex: 1,
-  },
-  messagesSection: {
-    flex: 1,
-    paddingHorizontal: 24,
-    paddingTop: 16,
-  },
-  messagesContainer: {
-    minHeight: 300,
-  },
-  messageWrapper: {
-    borderRadius: 16,
-    padding: 12,
-    marginBottom: 4,
-  },
-  messageAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-  },
-  avatarText: {
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  avatarImage: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    resizeMode: "cover",
-    borderWidth: 1,
-    borderColor: "rgba(15,23,42,0.6)",
-  },
-  messageUsername: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#cbd5e1",
-  },
-  messageTime: {
-    fontSize: 11,
-    color: "#64748b",
-  },
-  messageText: {
-    fontSize: 14,
-    color: "#cbd5e1",
-    marginTop: 4,
-    lineHeight: 20,
-  },
-  reactionChips: {
-    marginTop: 8,
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  reactionChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.03)",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "rgba(71,85,105,0.4)",
-  },
-  reactionChipActive: {
-    backgroundColor: "rgba(245,158,11,0.15)",
-    borderColor: "rgba(245,158,11,0.5)",
-  },
-  reactionChipEmoji: {
-    fontSize: 14,
-  },
-  reactionChipCount: {
-    fontSize: 12,
-    color: "#cbd5e1",
-    marginLeft: 6,
-    fontWeight: "700",
-  },
-  reactionBar: {
-    marginTop: 10,
-  },
-  reactionBarContent: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    backgroundColor: "rgba(15,23,42,0.95)",
-    borderRadius: 20,
-    flexDirection: "row",
     shadowColor: "#000",
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 6,
-    borderWidth: 1,
-    borderColor: "rgba(168,85,247,0.3)",
-  },
-  reactionBubble: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 16,
-    marginRight: 6,
-    backgroundColor: "rgba(255,255,255,0.05)",
-    alignItems: "center",
-    justifyContent: "center",
-    minWidth: 40,
-  },
-  reactionBubbleEmoji: {
-    fontSize: 20,
-  },
-  pinnedCard: {
-    marginBottom: 8,
-    padding: 12,
-    borderRadius: 14,
-    backgroundColor: "rgba(255, 247, 237, 0.04)",
-    borderWidth: 1,
-    borderColor: "rgba(245, 158, 11, 0.08)",
-  },
-  pinnedAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    overflow: "hidden",
-  },
-  pinnedText: {
-    color: "#fef3c7",
-    marginTop: 6,
-    fontSize: 14,
-  },
-  pinnedLabel: {
-    fontSize: 11,
-    color: "#f59e0b",
-    marginLeft: 6,
-    fontWeight: "900",
-  },
-  replyIndicator: {
-    marginTop: 8,
-    padding: 8,
-    borderLeftWidth: 3,
-    borderLeftColor: "#f59e0b",
-    backgroundColor: "rgba(245,158,11,0.03)",
-    borderRadius: 8,
-  },
-  replyIndicatorTitle: {
-    color: "#f59e0b",
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  replyIndicatorText: {
-    color: "#93c5fd",
-    fontSize: 12,
-  },
-  noMessages: {
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 40,
-  },
-  noMessagesText: {
-    fontSize: 14,
-    color: "#64748b",
-    marginTop: 12,
-    textAlign: "center",
-  },
-  bottomSection: {
-    backgroundColor: "#1e293b",
-    borderTopWidth: 0,
-    borderTopColor: "rgba(71, 85, 105, 0.5)",
-  },
-  replyPreview: {
-    paddingHorizontal: 24,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderColor: "rgba(71,85,105,0.25)",
-    backgroundColor: "rgba(245,158,11,0.03)",
-  },
-  replyPreviewRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  replyPreviewText: {
-    color: "#f59e0b",
-    fontWeight: "700",
-    fontSize: 13,
-  },
-  replyPreviewContent: {
-    color: "#94a3b8",
-    fontSize: 12,
-    marginTop: 2,
-  },
-  inputContainer: {
-    paddingHorizontal: 24,
-    paddingVertical: 20,
-  },
-  messageInputWrapper: {
-    flex: 1,
-  },
-  messageInputContainer: {
-    borderRadius: 16,
-    backgroundColor: "rgba(51, 65, 85, 0.5)",
-    borderWidth: 1,
-    borderColor: "rgba(71, 85, 105, 0.5)",
-  },
-  messageInput: {
-    fontSize: 14,
-    color: "#cbd5e1",
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-  },
-  sendButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
-    overflow: "hidden",
-  },
-  sendButtonDisabled: {
-    opacity: 0.5,
-  },
-  sendButtonGradient: {
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 20,
+    borderTopWidth: 1,
+    borderColor: "#27272A", // zinc-800
+    height: "45%",
     width: "100%",
-    height: "100%",
-    justifyContent: "center",
+  },
+  dragHandleContainer: {
     alignItems: "center",
-  },
-  peopleSection: {
-    paddingHorizontal: 20,
-    paddingBottom: 10,
-    paddingTop: 6,
-    borderTopWidth: 0,
-  },
-  peopleHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 10,
-  },
-  chatHeader: {
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 12,
-  },
-  peopleTitle: {
-    color: "#e5e7eb",
-    fontSize: 16,
-    fontWeight: "800",
-  },
-  peopleCount: {
-    color: "#94a3b8",
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  peopleScroller: {
-    paddingRight: 16,
-  },
-  personCardTouchable: {
-    marginRight: 12,
-  },
-  personCard: {
-    width: 210,
-    borderRadius: 18,
-    padding: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.35,
-    shadowRadius: 18,
-    elevation: 10,
-    backgroundColor: "#111827",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.04)",
-  },
-  personCardTop: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  personAvatarContainer: {
-    position: "relative",
-  },
-  personAvatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.5)",
-  },
-  personAvatarFallback: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: "#1f2937",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.2)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  personAgeBadge: {
-    position: "absolute",
-    bottom: -4,
-    right: -4,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: "rgba(255,255,255,0.5)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  personAgeBadgeText: {
-    fontSize: 10,
-    fontWeight: "700",
-    color: "#FFF",
-  },
-  personInitials: {
-    color: "#e5e7eb",
-    fontWeight: "700",
-  },
-  personMeta: {
-    flex: 1,
-    minWidth: 0,
-  },
-  personName: {
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  personLocation: {
-    color: "#94a3b8",
-    fontSize: 12,
-    marginTop: 2,
-  },
-  personFooter: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: 14,
-  },
-  personTierBadge: {
-    backgroundColor: "rgba(255,255,255,0.12)",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 12,
-  },
-  personTierText: {
-    color: "#f8fafc",
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 0.6,
-  },
-  personTierPill: {
-    backgroundColor: "rgba(0,0,0,0.2)",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.06)",
-  },
-  personTierPillText: {
-    color: "#cbd5e1",
-    fontSize: 11,
-    fontWeight: "600",
-  },
-  tabBar: {
-    flexDirection: "row",
-    paddingHorizontal: 20,
     paddingTop: 12,
     paddingBottom: 8,
-    gap: 24,
   },
-  tab: {
-    paddingBottom: 8,
-    borderBottomWidth: 0,
-    borderBottomColor: "transparent",
+  dragHandle: {
+    width: 48,
+    height: 4,
+    backgroundColor: "#52525B", // zinc-600
+    borderRadius: 2,
   },
-  tabActive: {
-    borderBottomColor: "#f59e0b",
-  },
-  tabText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#64748b",
-  },
-  tabTextActive: {
-    color: "#e5e7eb",
-  },
-  profileModalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    justifyContent: "flex-end",
-  },
-  profileModalBackdrop: {
+  scrollView: {
     flex: 1,
   },
-  profileModalContent: {
-    paddingHorizontal: 16,
-    paddingBottom: 26,
+  scrollContent: {
+    paddingHorizontal: 24,
+    paddingBottom: 32,
   },
-  profileCardWrap: {
-    marginBottom: 12,
-  },
-  profileCard: {
-    borderRadius: 20,
-    padding: 20,
-    position: "relative",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 20 },
-    shadowOpacity: 0.3,
-    shadowRadius: 60,
-    elevation: 20,
-  },
-  profileEmboss: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    opacity: 0.3,
-    borderRadius: 20,
-  },
-  profileTopSection: {
+  header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
-    marginBottom: 16,
+    marginBottom: 12,
   },
-  profileSectionRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 12,
+  headerLeft: {
     flex: 1,
   },
-  profileAvatarContainer: {
-    position: "relative",
-    width: 60,
-    height: 60,
-  },
-  profileAvatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-  },
-  profileAvatarPlaceholder: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  profileAgeBadge: {
-    position: "absolute",
-    bottom: -2,
-    right: -2,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    justifyContent: "center",
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 4,
-  },
-  profileAgeBadgeText: {
-    fontSize: 11,
-    fontWeight: "600",
-  },
-  profileNameSection: {
-    flex: 1,
-  },
-  profileName: {
-    fontSize: 19,
-    fontWeight: "600",
-    letterSpacing: -0.2,
+  title: {
+    fontSize: 24,
+    fontWeight: "700",
+    color: "white",
     marginBottom: 4,
   },
-  profileStatusRow: {
+  subtitle: {
+    fontSize: 14,
+    color: "#A1A1AA", // zinc-400
+    textTransform: "capitalize",
+  },
+  closeButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#27272A", // zinc-800
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  categoryPills: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 16,
+  },
+  categoryPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: "rgba(59, 130, 246, 0.2)",
+    borderWidth: 1,
+    borderColor: "rgba(59, 130, 246, 0.3)",
+  },
+  categoryPillText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#60A5FA",
+  },
+  statsContainer: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    backgroundColor: "rgba(39, 39, 42, 0.5)", // zinc-800/50
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
   },
-  profileActiveDot: {
+  statBox: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  statDivider: {
+    width: 1,
+    height: 32,
+    backgroundColor: "#52525B", // zinc-600
+    marginHorizontal: 12,
+  },
+  liveIndicator: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: "#3DDC84",
+    backgroundColor: "#F97316",
   },
-  profileStatusText: {
-    fontSize: 11,
-    fontWeight: "500",
-  },
-  profileLocationConnectRow: {
+  statContent: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: 12,
-    marginBottom: 12,
+    alignItems: "baseline",
+    gap: 4,
   },
-  profileLocationChip: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 8,
-    paddingVertical: 6,
-    paddingHorizontal: 14,
-    borderRadius: 20,
-    flex: 1,
-  },
-  profileLocationText: {
-    fontSize: 13,
-    fontWeight: "500",
-    flex: 1,
-    flexWrap: "wrap",
-  },
-  profileConnectButton: {
-    backgroundColor: "#1C1C1E",
-    paddingVertical: 10,
-    paddingHorizontal: 24,
-    borderRadius: 24,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
-    elevation: 8,
-  },
-  profileConnectText: {
-    color: "#FFF",
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  profileStatsRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    backgroundColor: "rgba(0,0,0,0.08)",
-    borderRadius: 12,
-    padding: 12,
-    marginTop: 4,
-    gap: 10,
-  },
-  profileStatLabel: {
-    color: "#8E8E93",
-    fontSize: 11,
+  statNumber: {
+    fontSize: 18,
     fontWeight: "700",
-    letterSpacing: 0.8,
+    color: "white",
   },
-  profileStatValue: {
-    color: "#0f172a",
+  statLabel: {
     fontSize: 14,
-    fontWeight: "700",
-    marginTop: 4,
+    color: "#A1A1AA",
   },
-  profileTierBadge: {
-    position: "absolute",
-    bottom: 20,
-    left: 20,
-  },
-  profileTierText: {
-    fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 1.5,
-  },
-  profileTierLabel: {
-    fontSize: 9,
-    fontWeight: "600",
-    letterSpacing: 1.5,
-    opacity: 0.5,
-  },
-  profileBrandingContainer: {
-    position: "absolute",
-    bottom: 20,
-    right: 20,
-  },
-  profileBranding: {
-    fontSize: 11,
-    fontWeight: "600",
-    letterSpacing: 1,
-  },
-  profileActionButtons: {
+  actionSection: {
     flexDirection: "row",
-    justifyContent: "center",
-    gap: 8,
-    marginBottom: 16,
+    gap: 12,
   },
-  profileActionButton: {
+  chatFeed: {
+    flex: 1,
+    backgroundColor: "rgba(39, 39, 42, 0.5)",
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "#52525B",
+  },
+  chatHeader: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    height: 32,
-    paddingHorizontal: 16,
-    borderRadius: 16,
-    boxShadow: "inset 0px 2px 10px 1px rgba(0, 0, 0, 0.15)",
+    gap: 8,
+    marginBottom: 12,
   },
-  profileActionButtonText: {
-    fontSize: 11,
-    fontWeight: "500",
-  },
-  profileAboutSection: {
-    marginTop: 12,
-    marginBottom: 20,
-    padding: 16,
-    borderRadius: 12,
-  },
-  profileBioText: {
+  chatTitle: {
     fontSize: 14,
-    lineHeight: 22,
-    fontWeight: "500",
+    fontWeight: "600",
+    color: "white",
+  },
+  chatLiveIndicator: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#F97316",
+    marginLeft: "auto",
+  },
+  chatMessages: {
+    maxHeight: 192,
+  },
+  chatMessage: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginBottom: 10,
+  },
+  chatUser: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#60A5FA",
+  },
+  chatUserSelf: {
+    color: "#3B82F6",
+  },
+  chatText: {
+    fontSize: 14,
+    color: "#D4D4D8",
+  },
+  chatTime: {
+    fontSize: 12,
+    color: "#71717A",
+  },
+  viewMore: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#60A5FA",
+    marginTop: 12,
+  },
+  chatPrompt: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "white",
+    marginTop: 12,
   },
   joinButton: {
-    alignSelf: "flex-end",
-  },
-  joinButtonDisabled: {
-    opacity: 0.45,
-  },
-  joinButtonGradient: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.06)",
-  },
-  joinButtonText: {
-    color: "#fff",
-    fontWeight: "800",
-    fontSize: 13,
-  },
-  socialsModalBackdrop: {
-    flex: 1,
-    backgroundColor: "transparent",
-    justifyContent: "flex-end",
-    paddingBottom: 0,
-  },
-  socialsModal: {
-    backgroundColor: "#FFF",
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 20,
-    maxHeight: "60%",
-    minHeight: "40%",
-    flexShrink: 0,
-    flex: 1,
-  },
-  socialsModalHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  socialsModalTitle: {
-    fontSize: 22,
-    fontWeight: "800",
-  },
-  socialsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    marginBottom: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    backgroundColor: "#F5F5F5",
-    borderRadius: 12,
-  },
-  socialsIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 8,
-    backgroundColor: "#E8E8E8",
+    width: 100,
     justifyContent: "center",
     alignItems: "center",
-  },
-  socialsLink: {
-    flex: 1,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingRight: 4,
-  },
-  socialsValue: {
-    fontSize: 15,
-    fontWeight: "500",
-    color: "#333",
-    flex: 1,
-  },
-  socialsModalActions: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 12,
-    marginTop: 20,
-  },
-  socialsCancel: {
-    flex: 1,
-    padding: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     borderRadius: 12,
-    backgroundColor: "#F0F0F0",
-    alignItems: "center",
+    gap: 6,
+    shadowColor: "#3B82F6",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
   },
-  socialsCancelText: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#333",
+  joinButtonText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "white",
+    textAlign: "center",
+  },
+  fallbackText: {
+    color: "#FFF",
+    fontSize: 18,
+    fontWeight: "700",
+    textAlign: "center",
+    padding: 24,
+  },
+  fallbackButton: {
+    color: "#60A5FA",
+    textAlign: "center",
+    fontSize: 16,
   },
 });
 

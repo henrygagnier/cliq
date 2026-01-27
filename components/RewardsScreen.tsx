@@ -7,10 +7,12 @@ import {
   StyleSheet,
   ActivityIndicator,
   RefreshControl,
+  Dimensions,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { supabase } from "../lib/supabase";
 import { Image } from "react-native";
+import FontAwesome6 from "@expo/vector-icons/FontAwesome6";
 import {
   Crown,
   Trophy,
@@ -36,6 +38,61 @@ const TIER_THRESHOLDS = {
 
 type CardTier = "lightblue" | "bronze" | "platinum" | "gold" | "black";
 
+const tierConfig = {
+  lightblue: {
+    cardBg: "#CFEFFB",
+    textColor: "#072E46",
+    accentColor: "#7ED6FF",
+    embossColor: "rgba(4, 46, 70, 0.08)",
+    highlightColor: "rgba(255, 255, 255, 0.9)",
+  },
+  bronze: {
+    cardBg: "#B08357",
+    textColor: "#4A2F18",
+    accentColor: "#D19C65",
+    embossColor: "rgba(0, 0, 0, 0.12)",
+    highlightColor: "rgba(255, 255, 255, 0.15)",
+  },
+  black: {
+    cardBg: "#2C2C2E",
+    textColor: "#8E8E93",
+    accentColor: "#6C6C70",
+    embossColor: "rgba(0, 0, 0, 0.3)",
+    highlightColor: "rgba(255, 255, 255, 0.05)",
+  },
+  gold: {
+    cardBg: "#B8986E",
+    textColor: "#8B7355",
+    accentColor: "#D4AF74",
+    embossColor: "rgba(0, 0, 0, 0.15)",
+    highlightColor: "rgba(255, 255, 255, 0.2)",
+  },
+  platinum: {
+    cardBg: "#A8B2BC",
+    textColor: "#6B7780",
+    accentColor: "#C5CFD9",
+    embossColor: "rgba(0, 0, 0, 0.2)",
+    highlightColor: "rgba(255, 255, 255, 0.25)",
+  },
+};
+
+function calculateAgeFromDob(dob?: string | null): number | null {
+  if (!dob) return null;
+  const dobDate = new Date(dob);
+  if (Number.isNaN(dobDate.getTime())) return null;
+
+  const today = new Date();
+  let age = today.getFullYear() - dobDate.getFullYear();
+  const monthDiff = today.getMonth() - dobDate.getMonth();
+  const dayDiff = today.getDate() - dobDate.getDate();
+
+  if (monthDiff < 0 || (monthDiff === 0 && dayDiff < 0)) {
+    age -= 1;
+  }
+
+  return age >= 0 ? age : null;
+}
+
 // TypeScript Interfaces
 interface LeaderboardEntry {
   rank: number;
@@ -58,6 +115,10 @@ interface UserProfile {
   full_name: string | null;
   points: number | null;
   avatar_url: string | null;
+  dob?: string | null;
+  bio?: string | null;
+  location?: string | null;
+  current_hotspot?: string | null;
 }
 
 interface TierInfo {
@@ -68,11 +129,9 @@ interface TierInfo {
   tierProgress: number;
 }
 
-interface RewardHeaderProps {
-  points: number;
-  nextTierPoints: number;
-  tierName: string;
-  tierProgress: number;
+interface ProfileCardProps {
+  profile: UserProfile;
+  tierInfo: TierInfo;
 }
 
 interface LiveLeaderboardProps {
@@ -95,15 +154,19 @@ interface RankStyle {
 function calculateTier(points: number): TierInfo {
   const currentPoints = points || 0;
 
+  // Top tier (BLACK)
   if (currentPoints >= TIER_THRESHOLDS.BLACK) {
     return {
       tier: "black",
-      displayName: "Black Tier",
+      displayName: "BLACK",
       pointsToNext: 0,
       nextTierName: "MAX",
       tierProgress: 100,
     };
-  } else if (currentPoints >= TIER_THRESHOLDS.GOLD) {
+  }
+
+  // GOLD band
+  else if (currentPoints >= TIER_THRESHOLDS.GOLD) {
     const pointsToNext = TIER_THRESHOLDS.BLACK - currentPoints;
     const tierProgress =
       ((currentPoints - TIER_THRESHOLDS.GOLD) /
@@ -111,25 +174,32 @@ function calculateTier(points: number): TierInfo {
       100;
     return {
       tier: "gold",
-      displayName: "Gold Tier",
+      displayName: "GOLD",
       pointsToNext,
-      nextTierName: "Black Tier",
+      nextTierName: "BLACK",
       tierProgress,
     };
-  } else if (currentPoints >= TIER_THRESHOLDS.SILVER) {
+  }
+
+  // SILVER band — use platinum styles per request
+  else if (currentPoints >= TIER_THRESHOLDS.SILVER) {
     const pointsToNext = TIER_THRESHOLDS.GOLD - currentPoints;
     const tierProgress =
       ((currentPoints - TIER_THRESHOLDS.SILVER) /
         (TIER_THRESHOLDS.GOLD - TIER_THRESHOLDS.SILVER)) *
       100;
+    // Use platinum styles for SILVER
     return {
       tier: "platinum",
-      displayName: "Silver Tier",
+      displayName: "SILVER",
       pointsToNext,
-      nextTierName: "Gold Tier",
+      nextTierName: "GOLD",
       tierProgress,
     };
-  } else if (currentPoints >= TIER_THRESHOLDS.BRONZE) {
+  }
+
+  // BRONZE band
+  else if (currentPoints >= TIER_THRESHOLDS.BRONZE) {
     const pointsToNext = TIER_THRESHOLDS.SILVER - currentPoints;
     const tierProgress =
       ((currentPoints - TIER_THRESHOLDS.BRONZE) /
@@ -137,12 +207,15 @@ function calculateTier(points: number): TierInfo {
       100;
     return {
       tier: "bronze",
-      displayName: "Bronze Tier",
+      displayName: "BRONZE",
       pointsToNext,
-      nextTierName: "Silver Tier",
+      nextTierName: "SILVER",
       tierProgress,
     };
-  } else {
+  }
+
+  // LIGHTBLUE / default
+  else {
     const pointsToNext = TIER_THRESHOLDS.BRONZE - currentPoints;
     const tierProgress =
       TIER_THRESHOLDS.BRONZE === 0
@@ -150,57 +223,186 @@ function calculateTier(points: number): TierInfo {
         : (currentPoints / TIER_THRESHOLDS.BRONZE) * 100;
     return {
       tier: "lightblue",
-      displayName: "Beginner",
+      displayName: "BEGINNER",
       pointsToNext,
-      nextTierName: "Bronze Tier",
+      nextTierName: "BRONZE",
       tierProgress,
     };
   }
 }
 
-// RewardHeader Component
-const RewardHeader: React.FC<RewardHeaderProps> = ({
-  points,
-  nextTierPoints,
-  tierName,
-  tierProgress,
-}) => {
+// ProfileCard Component
+const ProfileCard: React.FC<ProfileCardProps> = ({ profile, tierInfo }) => {
+  const [showAbout, setShowAbout] = useState(false);
+  const { width } = Dimensions.get("window");
+  const CARD_WIDTH = Math.min(width - 40, 380);
+
+  const age = calculateAgeFromDob(profile.dob);
+  const config = tierConfig[tierInfo.tier];
+
   return (
     <View style={styles.headerContainer}>
       <Text style={styles.mainTitle}>Cliqcard Rewards</Text>
-      <LinearGradient
-        colors={["#0f172a", "#1e293b", "#0f172a"]}
-        style={styles.pointsCard}
-      >
-        <View style={styles.pointsCardInner}>
-          <View style={styles.balanceHeader}>
-            <Trophy color="#94a3b8" size={20} />
-            <Text style={styles.balanceLabel}>Your Balance</Text>
+      <View style={[styles.cardWrap, { width: CARD_WIDTH }]}>
+        <View
+          style={[
+            styles.card,
+            {
+              width: CARD_WIDTH,
+              backgroundColor: config.cardBg,
+              height: showAbout ? "auto" : 220,
+            },
+          ]}
+        >
+          {/* Embossed Pattern Background */}
+          <View
+            style={[
+              styles.embossedPattern,
+              { backgroundColor: config.embossColor },
+            ]}
+          />
+
+          {/* Top Section */}
+          <View style={styles.topSection}>
+            {/* Profile Section */}
+            <View style={styles.profileSection}>
+              <View style={styles.avatarContainer}>
+                {profile.avatar_url ? (
+                  <Image
+                    source={{ uri: profile.avatar_url }}
+                    style={styles.avatar}
+                  />
+                ) : (
+                  <View
+                    style={[
+                      styles.avatarPlaceholder,
+                      { backgroundColor: config.accentColor },
+                    ]}
+                  >
+                    <FontAwesome6
+                      name="user"
+                      size={24}
+                      color={config.textColor}
+                    />
+                  </View>
+                )}
+                {/* Age Badge */}
+                <View
+                  style={[styles.ageBadge, { backgroundColor: config.cardBg }]}
+                >
+                  <Text
+                    style={[styles.ageBadgeText, { color: config.textColor }]}
+                  >
+                    {age ?? "--"}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Name & Status */}
+              <View style={styles.nameSection}>
+                <Text style={[styles.name, { color: config.textColor }]}>
+                  {profile.full_name || "Anonymous"}
+                </Text>
+                <View style={styles.statusRow}>
+                  <View style={styles.activeDot} />
+                  <Text
+                    style={[styles.statusText, { color: config.textColor }]}
+                  >
+                    Active
+                  </Text>
+                </View>
+              </View>
+            </View>
           </View>
-          <Text style={styles.pointsAmount}>
-            {points.toLocaleString()}{" "}
-            <Text style={styles.pointsSuffix}>pts</Text>
-          </Text>
-          <View style={styles.progressContainer}>
-            <View style={styles.progressLabels}>
-              <Text style={styles.progressLabel}>Progress to {tierName}</Text>
-              <Text style={styles.progressTarget}>
-                {nextTierPoints === 0
-                  ? "MAX"
-                  : `${nextTierPoints.toLocaleString()} pts`}
+
+          {/* Location & Connect Row */}
+          <View style={styles.locationConnectRow}>
+            <View
+              style={[styles.locationChip, { backgroundColor: config.cardBg }]}
+            >
+              <FontAwesome6
+                name="location-dot"
+                size={14}
+                color={config.textColor}
+              />
+              <Text style={[styles.locationText, { color: config.textColor }]}>
+                {profile.current_hotspot ||
+                  profile.location ||
+                  "Not at a hotspot"}
               </Text>
             </View>
-            <View style={styles.progressBarBg}>
-              <View
-                style={[
-                  styles.progressBarFill,
-                  { width: `${Math.min(tierProgress, 100)}%` },
-                ]}
-              />
-            </View>
+
+            <TouchableOpacity style={styles.connectButton}>
+              <Text style={styles.connectText}>Connect</Text>
+            </TouchableOpacity>
           </View>
+
+          {/* Action Buttons */}
+          <View style={styles.actionButtons}>
+            <TouchableOpacity
+              activeOpacity={0.7}
+              style={[styles.actionButton, { backgroundColor: config.cardBg }]}
+            >
+              <FontAwesome6 name="link" size={12} color={config.textColor} />
+              <Text
+                style={[styles.actionButtonText, { color: config.textColor }]}
+              >
+                Socials
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={() => setShowAbout(!showAbout)}
+              style={[styles.actionButton, { backgroundColor: config.cardBg }]}
+            >
+              <FontAwesome6
+                name="circle-info"
+                size={12}
+                color={config.textColor}
+              />
+              <Text
+                style={[styles.actionButtonText, { color: config.textColor }]}
+              >
+                About
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Tier Badge - Bottom Left */}
+          <View style={styles.tierBadge}>
+            <Text style={[styles.tierText, { color: config.textColor }]}>
+              {tierInfo.displayName}
+            </Text>
+            <Text style={[styles.tierLabel, { color: config.textColor }]}>
+              CARD
+            </Text>
+          </View>
+
+          {/* Cliqcard Text - Bottom Right */}
+          <View style={styles.brandingContainer}>
+            <Text style={[styles.branding, { color: config.textColor }]}>
+              CLIQCARD
+            </Text>
+          </View>
+
+          {/* About Me Section (Expanded) */}
+          {showAbout && (
+            <View
+              style={[
+                styles.aboutSection,
+                {
+                  backgroundColor: config.cardBg,
+                },
+              ]}
+            >
+              <Text style={[styles.bioText, { color: config.textColor }]}>
+                {profile.bio || "No bio added yet"}
+              </Text>
+            </View>
+          )}
         </View>
-      </LinearGradient>
+      </View>
     </View>
   );
 };
@@ -624,7 +826,7 @@ export function RewardsScreen() {
             points: user.points || 0,
             avatar: user.avatar_url || getDefaultAvatar(index),
             id: user.id,
-          })
+          }),
         );
         setLeaderboard(formattedLeaderboard);
       }
@@ -665,12 +867,9 @@ export function RewardsScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
-        <RewardHeader
-          points={userPoints}
-          nextTierPoints={tierInfo.pointsToNext}
-          tierName={tierInfo.nextTierName}
-          tierProgress={tierInfo.tierProgress}
-        />
+        {currentUser && (
+          <ProfileCard profile={currentUser} tierInfo={tierInfo} />
+        )}
         <LiveLeaderboard
           entries={leaderboard}
           currentUserRank={currentUserRank > 10 ? currentUserRank : undefined}
@@ -712,72 +911,189 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     letterSpacing: -0.5,
   },
-  pointsCard: {
+  cardWrap: {
+    marginBottom: 16,
+  },
+  card: {
     borderRadius: 20,
     padding: 20,
-    backgroundColor: "#0f172a",
-    borderWidth: 1,
-    borderColor: "#334155",
-    shadowColor: "#06b6d4",
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.1,
-    shadowRadius: 20,
-  },
-  pointsCardInner: {
     position: "relative",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 20 },
+    shadowOpacity: 0.3,
+    shadowRadius: 60,
+    elevation: 20,
   },
-  balanceHeader: {
+  embossedPattern: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    opacity: 0.3,
+    borderRadius: 20,
+  },
+  topSection: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: 16,
+  },
+  profileSection: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  avatarContainer: {
+    position: "relative",
+    width: 60,
+    height: 60,
+  },
+  avatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+  },
+  avatarPlaceholder: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  ageBadge: {
+    position: "absolute",
+    bottom: -2,
+    right: -2,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  ageBadgeText: {
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  nameSection: {
+    flex: 1,
+  },
+  name: {
+    fontSize: 19,
+    fontWeight: "600",
+    letterSpacing: -0.2,
+    marginBottom: 4,
+  },
+  statusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  activeDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#3DDC84",
+  },
+  statusText: {
+    fontSize: 11,
+    fontWeight: "500",
+  },
+  locationConnectRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  locationChip: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    marginBottom: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    boxShadow: "inset 0px 4px 10px 1px rgba(0, 0, 0, 0.15)",
   },
-  balanceLabel: {
-    fontSize: 14,
-    color: "#94a3b8",
+  locationText: {
+    fontSize: 13,
     fontWeight: "500",
   },
-  pointsAmount: {
-    fontSize: 40,
-    fontWeight: "800",
-    color: "#f8fafc",
-    marginBottom: 20,
-    letterSpacing: -1,
+  connectButton: {
+    backgroundColor: "#1C1C1E",
+    paddingVertical: 10,
+    paddingHorizontal: 24,
+    borderRadius: 24,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 8,
   },
-  pointsSuffix: {
-    fontSize: 24,
-    color: "#cbd5e1",
+  connectText: {
+    color: "#FFF",
+    fontSize: 15,
     fontWeight: "600",
   },
-  progressContainer: {
-    gap: 8,
-  },
-  progressLabels: {
+  actionButtons: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 6,
+    justifyContent: "center",
+    gap: 8,
+    marginBottom: 16,
   },
-  progressLabel: {
-    fontSize: 13,
-    color: "#94a3b8",
+  actionButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    height: 32,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+    boxShadow: "inset 0px 2px 10px 1px rgba(0, 0, 0, 0.15)",
+  },
+  actionButtonText: {
+    fontSize: 11,
     fontWeight: "500",
   },
-  progressTarget: {
-    fontSize: 13,
-    color: "#06b6d4",
+  tierBadge: {
+    position: "absolute",
+    bottom: 20,
+    left: 20,
+  },
+  tierText: {
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 1.5,
+  },
+  tierLabel: {
+    fontSize: 9,
     fontWeight: "600",
+    letterSpacing: 1.5,
+    opacity: 0.5,
   },
-  progressBarBg: {
-    height: 8,
-    backgroundColor: "#1e293b",
-    borderRadius: 4,
-    overflow: "hidden",
-    borderWidth: 0,
+  brandingContainer: {
+    position: "absolute",
+    bottom: 20,
+    right: 20,
   },
-  progressBarFill: {
-    height: "100%",
-    backgroundColor: "#06b6d4",
-    borderRadius: 4,
+  branding: {
+    fontSize: 11,
+    fontWeight: "600",
+    letterSpacing: 1,
+  },
+  aboutSection: {
+    marginTop: 12,
+    marginBottom: 20,
+    padding: 16,
+    borderRadius: 12,
+  },
+  bioText: {
+    fontSize: 14,
+    lineHeight: 22,
+    fontWeight: "500",
   },
   leaderboardContainer: {
     paddingHorizontal: 20,
@@ -1051,7 +1367,7 @@ const styles = StyleSheet.create({
   activityHeader: {
     flexDirection: "row",
     alignItems: "basline",
-  
+
     gap: 10,
     marginBottom: 16,
   },

@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS user_profiles (
   full_name TEXT,
   avatar_url TEXT,
   dob DATE,
+  bio TEXT,
+  socials JSONB DEFAULT '{}',
   role TEXT,
   interests TEXT[] DEFAULT '{}',
   goals TEXT[] DEFAULT '{}',
@@ -44,6 +46,12 @@ ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS dob DATE;
 
 -- Backfill-safe column add for avatar_url if the table already exists
 ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+
+-- Backfill-safe column add for bio if the table already exists
+ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS bio TEXT;
+
+-- Backfill-safe column add for socials if the table already exists
+ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS socials JSONB DEFAULT '{}';
 
 -- Create trigger to update updated_at timestamp
 CREATE OR REPLACE FUNCTION update_updated_at_column()

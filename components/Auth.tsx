@@ -1,8 +1,7 @@
 import React, { useState } from "react";
 import { AppState } from "react-native";
 import { supabase } from "../lib/supabase";
-import SignIn from "./SignIn";
-import SignUp from "./SignUp";
+import { WelcomeScreen } from "./onboarding/WelcomeScreen";
 
 // Tells Supabase Auth to continuously refresh the session automatically if
 // the app is in the foreground. When this is added, you will continue to receive
@@ -17,11 +16,5 @@ AppState.addEventListener("change", (state) => {
 });
 
 export default function Auth() {
-  const [screen, setScreen] = useState<"signin" | "signup">("signin");
-
-  return screen === "signin" ? (
-    <SignIn onNavigateToSignUp={() => setScreen("signup")} />
-  ) : (
-    <SignUp onNavigateToSignIn={() => setScreen("signin")} />
-  );
+  return <WelcomeScreen onContinue={() => {}} />;
 }

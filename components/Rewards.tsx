@@ -139,7 +139,7 @@ export function CategoryCard({
             duration: 800,
             useNativeDriver: true,
           }),
-        ])
+        ]),
       );
       loop.start();
       return () => loop.stop();
@@ -173,7 +173,7 @@ export function HotspotsMainPage({
   onCategoryClick,
   onHotspotClick,
 }: HotspotsMainPageProps) {
-  // Dynamic trending hotspots - fetch real hotspots within 20km of the user and enrich with active user counts
+  // Dynamic trending hotspots - fetch real hotspots within 12.4mi of the user and enrich with active user counts
   const [trendingHotspots, setTrendingHotspots] = useState<any[]>([]);
   const [loadingHotspots, setLoadingHotspots] = useState<boolean>(true);
   const [userLocation, setUserLocation] = useState<{
@@ -187,9 +187,9 @@ export function HotspotsMainPage({
     lat1: number,
     lon1: number,
     lat2: number,
-    lon2: number
+    lon2: number,
   ) => {
-    const R = 6371; // Earth's radius in km
+    const R = 3959; // Earth's radius in mi
     const dLat = toRad(lat2 - lat1);
     const dLon = toRad(lon2 - lon1);
     const a =
@@ -219,7 +219,7 @@ export function HotspotsMainPage({
       const lon = loc.coords.longitude;
       setUserLocation({ latitude: lat, longitude: lon });
 
-      // Fetch hotspots and filter to 20km radius
+      // Fetch hotspots and filter to 12.4mi radius
       const { data: hotspots, error } = await supabase
         .from("hotspots")
         .select("*")
@@ -234,9 +234,9 @@ export function HotspotsMainPage({
       const hotspotsWithDistance = hotspots
         .map((h: any) => ({
           ...h,
-          distanceKm: calculateDistance(lat, lon, h.latitude, h.longitude),
+          distanceMi: calculateDistance(lat, lon, h.latitude, h.longitude),
         }))
-        .filter((h: any) => h.distanceKm <= 10);
+        .filter((h: any) => h.distanceMi <= 6.2);
 
       const hotspotIds = hotspotsWithDistance.map((h: any) => h.id);
       const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
@@ -259,11 +259,11 @@ export function HotspotsMainPage({
         imageUrl: h.image_url || null,
         category: h.type || "Other",
         isTrending: (counts[h.id] || 0) > 0,
-        distanceKm: h.distanceKm,
+        distanceMi: h.distanceMi,
       }));
 
       withCounts.sort((a: any, b: any) => {
-        if (b.userCount === a.userCount) return a.distanceKm - b.distanceKm;
+        if (b.userCount === a.userCount) return a.distanceMi - b.distanceMi;
         return b.userCount - a.userCount;
       });
 
@@ -316,7 +316,7 @@ export function HotspotsMainPage({
           </View>
         ) : trendingHotspots.length === 0 ? (
           <Text style={{ color: "#9CA3AF", marginLeft: 24 }}>
-            No nearby hotspots within 20km
+            No nearby hotspots within 12.4mi
           </Text>
         ) : (
           <ScrollView

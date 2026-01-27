@@ -1,51 +1,24 @@
-import React from "react";
+﻿import React, { useState } from "react";
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
-  Platform,
+  SafeAreaView,
   Dimensions,
 } from "react-native";
-import Animated, {
-  FadeInDown,
-  useSharedValue,
-  useAnimatedStyle,
-  withTiming,
-  withSequence,
-} from "react-native-reanimated";
-import { Navigation, MapPin, Shield } from "lucide-react-native";
-import { LinearGradient } from "expo-linear-gradient";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { MapPin, Check } from "lucide-react-native";
 import * as Location from "expo-location";
+import { WebView } from "react-native-webview";
 
 interface PermissionsScreenProps {
   onAllow: () => void;
 }
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
-
 export function PermissionsScreen({ onAllow }: PermissionsScreenProps) {
-  const insets = useSafeAreaInsets();
+  const [mapLoaded, setMapLoaded] = useState(false);
 
-  // Press scale animation for Allow button
-  const scale = useSharedValue(1);
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
-
-  const onPressIn = () => {
-    scale.value = withTiming(0.95, { duration: 100 });
-  };
-
-  const onPressOut = () => {
-    scale.value = withSequence(
-      withTiming(1.05, { duration: 100 }),
-      withTiming(1, { duration: 100 })
-    );
-  };
-
-  const handleAllow = async () => {
+  const handleFinish = async () => {
     try {
       let { status } = await Location.getForegroundPermissionsAsync();
       if (status !== "granted") {
@@ -58,244 +31,314 @@ export function PermissionsScreen({ onAllow }: PermissionsScreenProps) {
     }
   };
 
-  // Adjust icon size for smaller screens
-  const iconSize = SCREEN_WIDTH < 400 ? 48 : 64;
-  const iconWrapperPadding = SCREEN_WIDTH < 400 ? 24 : 32;
+  const generateMapHTML = () => {
+    const lat = 40.758;
+    const lng = -73.9855;
+    
+    // GLOBAL SYNC TIMESTAMP - All markers sync to this
+    const PULSE_DURATION = 2500;
+    const ANIMATION_START = Date.now();
+    const globalAnimationDelay = (-ANIMATION_START % PULSE_DURATION);
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          html, body { height: 100%; width: 100%; overflow: hidden; }
+          #map { height: 100vh; width: 100vw; background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); }
+          .leaflet-control-attribution { display: none; }
+          .leaflet-container { background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%) !important; }
+          
+          .modern-marker {
+            cursor: default !important;
+            transition: all 0.3s ease;
+            filter: drop-shadow(0 8px 16px rgba(0,0,0,0.4));
+          }
+          
+          .user-marker {
+            filter: drop-shadow(0 8px 24px rgba(59,130,246,0.6));
+          }
+          
+          @keyframes userPulse {
+            0% {
+              transform: translate(-50%, -50%) scale(0.8);
+              opacity: 0.5;
+            }
+            70% {
+              transform: translate(-50%, -50%) scale(1.3);
+              opacity: 0;
+            }
+            100% {
+              opacity: 0;
+            }
+          }
+          
+          @keyframes pulse {
+            0%, 100% {
+              transform: translate(-50%, -50%) scale(0.8);
+              opacity: 0.45;
+            }
+            50% {
+              transform: translate(-50%, -50%) scale(1.3);
+              opacity: 0;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        <div id="map"></div>
+        <script>
+          var map = L.map('map', {
+            zoomControl: false, dragging: false, touchZoom: false,
+            scrollWheelZoom: false, doubleClickZoom: false, boxZoom: false,
+            keyboard: false, tap: false
+          }).setView([${lat}, ${lng}], 14);
+          
+          L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            maxZoom: 19, minZoom: 3, subdomains: 'abcd'
+          }).addTo(map);
+          
+          // User marker
+          var userIcon = L.divIcon({
+            html: \`
+              <div style="
+                position: relative;
+                width: 40px;
+                height: 40px;
+              ">
+                <div style="
+                  position: absolute;
+                  top: 50%;
+                  left: 50%;
+                  width: 40px;
+                  height: 40px;
+                  background: rgba(59,130,246,0.3);
+                  border-radius: 50%;
+                  transform: translate(-50%, -50%);
+                  animation: userPulse 2.5s ease-out infinite;
+                "></div>
+                <div style="
+                  position: absolute;
+                  top: 50%;
+                  left: 50%;
+                  width: 16px;
+                  height: 16px;
+                  background: linear-gradient(135deg, #3b82f6 0%, #1e40af 100%);
+                  border-radius: 50%;
+                  transform: translate(-50%, -50%);
+                  border: 3px solid white;
+                  box-shadow: 0 8px 24px rgba(59,130,246,0.6), 0 0 0 1px rgba(0,0,0,0.1);
+                "></div>
+              </div>
+            \`,
+            className: 'user-marker',
+            iconSize: [40, 40],
+            iconAnchor: [20, 20]
+          });
+          
+          
+          
+          // Sample hotspot markers with placeholder values
+          var hotspots = [
+            { lat: ${lat + 0.003}, lng: ${lng + 0.003}, emoji: '☕', name: 'Coffee Shop', users: 12 },
+            { lat: ${lat - 0.004}, lng: ${lng + 0.005}, emoji: '🍸', name: 'Bar & Lounge', users: 8 },
+            { lat: ${lat + 0.005}, lng: ${lng - 0.004}, emoji: '🎮', name: 'Gaming Hub', users: 5 }
+          ];
+          
+          hotspots.forEach(function(spot) {
+            var userCount = spot.users || 0;
+            var markerSize = 54;
+            
+            var markerHTML = \`
+              <button class="marker-button" style="position: relative; width: \${markerSize}px; height: \${markerSize}px; background: transparent; border: none; cursor: default;">
+                <div style="
+                  position: absolute;
+                  top: 50%;
+                  left: 50%;
+                  transform: translate(-50%, -50%);
+                  width: \${markerSize}px;
+                  height: \${markerSize}px;
+                  background: #3B82F6;
+                  border-radius: 50%;
+                  border: 2px solid rgba(255, 255, 255, 0.2);
+                  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  font-size: \${markerSize * 0.5}px;
+                  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                ">
+                  \${spot.emoji}
+                  
+                  <div style="
+                    position: absolute;
+                    top: -4px;
+                    right: -4px;
+                    background: #22C55E;
+                    border: 2px solid #16A34A;
+                    color: white;
+                    font-weight: 700;
+                    font-size: 12px;
+                    padding: 0 6px;
+                    border-radius: 9999px;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+                    min-width: 20px;
+                    height: 20px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                  ">\${userCount}</div>
+                </div>
+              </button>
+            \`;
+            
+            var markerIcon = L.divIcon({
+              html: markerHTML,
+              className: 'modern-marker',
+              iconSize: [markerSize, markerSize],
+              iconAnchor: [markerSize / 2, markerSize / 2]
+            });
+            
+            L.marker([spot.lat, spot.lng], { icon: markerIcon, interactive: false }).addTo(map);
+          });
+          
+          if (window.ReactNativeWebView) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'mapLoaded' }));
+          }
+        </script>
+      </body>
+      </html>
+    `;
+  };
+
+  const handleMessage = (event) => {
+    try {
+      const data = JSON.parse(event.nativeEvent.data);
+      if (data.type === "mapLoaded") {
+        setMapLoaded(true);
+      }
+    } catch (e) {
+      console.log("Error parsing message:", e);
+    }
+  };
 
   return (
-    <LinearGradient
-      colors={["#000000", "#171717", "#0a0a0a"]}
-      style={[
-        styles.container,
-        { paddingTop: insets.top, paddingBottom: insets.bottom },
-      ]}
-    >
-      <Animated.View entering={FadeInDown.duration(600)} style={styles.content}>
-        {/* Icon with amber glow */}
-        <View
-          style={[
-            styles.iconContainer,
-            { width: iconSize * 2, height: iconSize * 2 },
-          ]}
-        >
-          <LinearGradient
-            colors={["#262626", "#171717"]}
-            style={[
-              styles.iconWrapper,
-              {
-                padding: iconWrapperPadding,
-                borderRadius: iconWrapperPadding * 0.75,
-              },
-            ]}
-          >
-            <Navigation size={iconSize} color="#fbbf24" strokeWidth={2} />
-          </LinearGradient>
+    <SafeAreaView style={styles.container}>
+      <View style={styles.content}>
+        {/* Map Illustration */}
+        <View style={styles.illustration}>
+          <View style={styles.mapContainer}>
+            <WebView
+              source={{ html: generateMapHTML() }}
+              onMessage={handleMessage}
+              style={styles.webview}
+              scrollEnabled={false}
+              showsVerticalScrollIndicator={false}
+              showsHorizontalScrollIndicator={false}
+              androidHardwareAccelerationDisabled={false}
+              androidLayerType="hardware"
+            />
+          </View>
         </View>
 
-        {/* Title and description */}
-        <View style={[styles.textContainer, { maxWidth: SCREEN_WIDTH * 0.9 }]}>
-          <Text
-            style={[styles.title, { fontSize: SCREEN_WIDTH < 400 ? 24 : 30 }]}
-          >
-            Enable Location Access
-          </Text>
-          <Text
-            style={[
-              styles.description,
-              { fontSize: SCREEN_WIDTH < 400 ? 14 : 16 },
-            ]}
-          >
-            Location access is <Text style={styles.highlight}>essential</Text>{" "}
-            for your Cliqcard to work. Without it, you won't be able to check
-            in, discover nearby events, or connect with people around you.
+        {/* Content */}
+        <View style={styles.textContent}>
+          <Text style={styles.title}>Enable location access and join</Text>
+          <Text style={styles.subtitle}>
+            Location enables you to discover and connect with people nearby.
+            Your privacy is important to us and you can control this anytime.
           </Text>
         </View>
 
-        <View
-          style={[
-            styles.cardsContainer,
-            { marginTop: SCREEN_WIDTH < 400 ? 12 : 16 },
-          ]}
-        >
-          <View style={styles.card}>
-            <View style={styles.cardIcon}>
-              <MapPin size={20} color="#fbbf24" strokeWidth={2} />
-            </View>
-            <View style={styles.cardText}>
-              <Text style={styles.cardTitle}>Check In Anywhere</Text>
-              <Text style={styles.cardDescription}>
-                Share your card at venues, events, and locations
-              </Text>
-            </View>
-          </View>
-
-          <View style={[styles.card, { marginTop: 12 }]}>
-            <View style={styles.cardIcon}>
-              <Shield size={20} color="#fbbf24" strokeWidth={2} />
-            </View>
-            <View style={styles.cardText}>
-              <Text style={styles.cardTitle}>Full Functionality</Text>
-              <Text style={styles.cardDescription}>
-                Access all features and connect with nearby users
-              </Text>
-            </View>
-          </View>
-        </View>
-      </Animated.View>
-
-      {/* CTA buttons */}
-      <View style={[styles.ctaContainer, { maxWidth: SCREEN_WIDTH * 0.9 }]}>
-        <Animated.View style={[styles.allowButtonWrapper, animatedStyle]}>
-          <LinearGradient
-            colors={["#fbbf24", "#f59e0b"]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={styles.allowButton}
-          >
-            <TouchableOpacity
-              onPress={handleAllow}
-              activeOpacity={1}
-              onPressIn={onPressIn}
-              onPressOut={onPressOut}
-              accessibilityRole="button"
-            >
-              <Text style={styles.allowButtonText}>Allow Location Access</Text>
-            </TouchableOpacity>
-          </LinearGradient>
-        </Animated.View>
-
+        {/* Button */}
         <TouchableOpacity
-          onPress={onAllow}
-          activeOpacity={0.7}
-          style={styles.skipButton}
-          accessibilityRole="button"
+          onPress={handleFinish}
+          style={styles.finishButton}
+          activeOpacity={0.8}
         >
-          <Text style={styles.skipButtonText}>Skip for now</Text>
+          <Check width={20} height={20} color="#000000" />
+          <Text style={styles.finishButtonText}>Finish</Text>
         </TouchableOpacity>
       </View>
-    </LinearGradient>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingHorizontal: 24,
-    justifyContent: "space-between",
-    backgroundColor: "transparent",
+    backgroundColor: "#000000",
   },
   content: {
     flex: 1,
-    maxWidth: 448,
-    alignSelf: "center",
-    justifyContent: "center",
-    alignItems: "center",
-    gap: 32,
-  },
-  iconContainer: {
-    justifyContent: "center",
+    paddingHorizontal: 24,
+    paddingVertical: 32,
+    justifyContent: "space-between",
     alignItems: "center",
   },
-  iconWrapper: {
+  illustration: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  mapContainer: {
+    width: 256,
+    height: 256,
     borderRadius: 24,
-    borderWidth: 1,
-    borderColor: "#404040",
-    backgroundColor: "#262626",
+    overflow: "hidden",
     shadowColor: "#000",
-    shadowOpacity: 0.8,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 0 },
-    ...Platform.select({
-      android: {
-        elevation: 10,
-      },
-    }),
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.5,
+    shadowRadius: 16,
+    elevation: 16,
   },
-  textContainer: {
+  webview: {
+    flex: 1,
+    backgroundColor: "transparent",
+  },
+  textContent: {
     alignItems: "center",
-    gap: 16,
+    paddingVertical: 32,
   },
   title: {
-    fontWeight: "700",
-    color: "#f5f5f5",
+    color: "#FFFFFF",
+    fontSize: 28,
+    fontWeight: "800",
     textAlign: "center",
+    marginBottom: 16,
   },
-  description: {
-    color: "#a3a3a3",
-    textAlign: "center",
-    lineHeight: 24,
-  },
-  highlight: {
-    color: "#fbbf24",
-    fontWeight: "600",
-  },
-  cardsContainer: {
-    width: "100%",
-  },
-  card: {
-    backgroundColor: "rgba(23,23,23,0.5)",
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "#262626",
-    padding: 16,
-    flexDirection: "row",
-    gap: 12,
-    alignItems: "flex-start",
-  },
-  cardIcon: {
-    backgroundColor: "rgba(251,191,36,0.1)",
-    padding: 8,
-    borderRadius: 12,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  cardTitle: {
-    color: "#e5e5e5",
-    fontWeight: "500",
+  subtitle: {
+    color: "#9CA3AF",
     fontSize: 14,
+    textAlign: "center",
+    lineHeight: 20,
+    maxWidth: 320,
   },
-  cardDescription: {
-    color: "#737373",
-    fontSize: 12,
-    marginTop: 4,
-    flexShrink: 1,
-  },
-  ctaContainer: {
-    maxWidth: 448,
+  finishButton: {
+    backgroundColor: "#D4AF37",
+    borderRadius: 24,
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     width: "100%",
-    alignSelf: "center",
-    gap: 12,
-    paddingBottom: 12,
+    maxWidth: 320,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
   },
-  allowButtonWrapper: {
-    borderRadius: 9999,
-  },
-  allowButton: {
-    paddingVertical: 16,
-    borderRadius: 9999,
-    shadowColor: "#fbbf24",
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 0 },
-    ...Platform.select({
-      android: {
-        elevation: 12,
-      },
-    }),
-  },
-  allowButtonText: {
-    textAlign: "center",
+  finishButtonText: {
     color: "#000000",
-    fontWeight: "600",
     fontSize: 16,
-  },
-  skipButton: {
-    paddingVertical: 16,
-  },
-  skipButtonText: {
-    textAlign: "center",
-    color: "#a3a3a3",
-    fontWeight: "500",
-    fontSize: 16,
+    fontWeight: "700",
+    marginLeft: 8,
   },
 });
