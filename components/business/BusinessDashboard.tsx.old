@@ -1,0 +1,615 @@
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
+  Modal,
+  TextInput,
+  Dimensions,
+  ActivityIndicator,
+  RefreshControl,
+} from 'react-native';
+import { supabase } from '../../lib/supabase';
+import { 
+  Ionicons, 
+  MaterialCommunityIcons, 
+  Feather 
+} from '@expo/vector-icons';
+import { LineChart } from 'react-native-chart-kit';
+import CreateOfferModal from './CreateOfferModal';
+import EditProfileModal from './EditProfileModal';
+import ChatModerationModal from './ChatModerationModal';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+interface BusinessProfile {
+  id: string;
+  business_name: string;
+  description: string;
+  address: string;
+  phone: string;
+  website: string;
+  status: string;
+}
+
+interface BusinessOffer {
+  id: string;
+  title: string;
+  expires_at: string;
+  redemptions_count: number;
+  is_active: boolean;
+}
+
+interface AnalyticsData {
+  views: number;
+  checkIns: number;
+  comments: number;
+  promotions: number;
+  viewsChange: number;
+  checkInsChange: number;
+  commentsChange: number;
+  promotionsChange: number;
+}
+
+export default function BusinessDashboard() {
+  const [businessProfile, setBusinessProfile] = useState<BusinessProfile | null>(null);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [activeOffers, setActiveOffers] = useState<BusinessOffer[]>([]);
+  const [analytics, setAnalytics] = useState<AnalyticsData>({
+    views: 0,
+    checkIns: 0,
+    comments: 0,
+    promotions: 0,
+    viewsChange: 0,
+    checkInsChange: 0,
+    commentsChange: 0,
+    promotionsChange: 0,
+  });
+  const [unreadMessages, setUnreadMessages] = useState(0);
+  
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showCreateOfferModal, setShowCreateOfferModal] = useState(false);
+  const [showActionsMenu, setShowActionsMenu] = useState(false);
+  const [showAnalyticsModal, setShowAnalyticsModal] = useState(false);
+  const [selectedStat, setSelectedStat] = useState<string | null>(null);
+  const [timeRange, setTimeRange] = useState('7d');
+  const [showChatModal, setShowChatModal] = useState(false);
+  
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => {
+    loadDashboardData();
+  }, []);
+
+  const loadDashboardData = async () => {
+    try {
+      setLoading(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) return;
+
+      // Load business profile
+      const { data: profile } = await supabase
+        .from('business_profiles')
+        .select('*')
+        .eq('user_id', user.id)
+        .single();
+
+      if (profile) {
+        setBusinessProfile(profile);
+
+        // Load categories
+        const { data: cats } = await supabase
+          .from('business_categories')
+          .select('category')
+          .eq('business_id', profile.id);
+        
+        if (cats) {
+          setCategories(cats.map(c => c.category));
+        }
+
+        // Load active offers
+        const { data: offers } = await supabase
+          .from('business_offers')
+          .select('*')
+          .eq('business_id', profile.id)
+          .order('created_at', { ascending: false })
+          .limit(5);
+
+        if (offers) {
+          setActiveOffers(offers);
+        }
+
+        // Load analytics
+        await loadAnalytics(profile.id);
+
+        // Load unread messages count
+        const { count } = await supabase
+          .from('business_chat_messages')
+          .select('*', { count: 'exact', head: true })
+          .eq('business_id', profile.id)
+          .eq('is_moderated', false);
+
+        setUnreadMessages(count || 0);
+      }
+    } catch (error) {
+      console.error('Error loading dashboard:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  const loadAnalytics = async (businessId: string) => {
+    try {
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - 7);
+
+      // Get current period data
+      const { data: currentData } = await supabase
+        .rpc('get_business_analytics', {
+          p_business_id: businessId,
+          p_start_date: startDate.toISOString().split('T')[0],
+          p_end_date: endDate.toISOString().split('T')[0],
+        });
+
+      // Get previous period for comparison
+      const prevEndDate = new Date(startDate);
+      const prevStartDate = new Date(prevEndDate);
+      prevStartDate.setDate(prevStartDate.getDate() - 7);
+
+      const { data: prevData } = await supabase
+        .rpc('get_business_analytics', {
+          p_business_id: businessId,
+          p_start_date: prevStartDate.toISOString().split('T')[0],
+          p_end_date: prevEndDate.toISOString().split('T')[0],
+        });
+
+      // Calculate totals and changes
+      const calculateTotals = (data: any[]) => {
+        return data?.reduce(
+          (acc, day) => ({
+            views: acc.views + (day.views_count || 0),
+            checkIns: acc.checkIns + (day.check_ins_count || 0),
+            comments: acc.comments + (day.comments_count || 0),
+            promotions: acc.promotions + (day.promotions_count || 0),
+          }),
+          { views: 0, checkIns: 0, comments: 0, promotions: 0 }
+        );
+      };
+
+      const current = calculateTotals(currentData || []);
+      const previous = calculateTotals(prevData || []);
+
+      const calculateChange = (curr: number, prev: number) => {
+        if (prev === 0) return curr > 0 ? 100 : 0;
+        return Math.round(((curr - prev) / prev) * 100);
+      };
+
+      setAnalytics({
+        ...current,
+        viewsChange: calculateChange(current.views, previous.views),
+        checkInsChange: calculateChange(current.checkIns, previous.checkIns),
+        commentsChange: calculateChange(current.comments, previous.comments),
+        promotionsChange: calculateChange(current.promotions, previous.promotions),
+      });
+    } catch (error) {
+      console.error('Error loading analytics:', error);
+    }
+  };
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadDashboardData();
+  };
+
+  const toggleOffer = async (offerId: string, currentStatus: boolean) => {
+    try {
+      const { error } = await supabase
+        .from('business_offers')
+        .update({ is_active: !currentStatus })
+        .eq('id', offerId);
+
+      if (!error) {
+        setActiveOffers(
+          activeOffers.map(offer =>
+            offer.id === offerId ? { ...offer, is_active: !currentStatus } : offer
+          )
+        );
+      }
+    } catch (error) {
+      console.error('Error toggling offer:', error);
+    }
+  };
+
+  const formatExpiresIn = (expiresAt: string) => {
+    const now = new Date();
+    const expires = new Date(expiresAt);
+    const diffTime = expires.getTime() - now.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays < 0) return 'Expired';
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return '1 day';
+    return `${diffDays} days`;
+  };
+
+  const stats = [
+    { 
+      label: 'Views', 
+      value: analytics.views.toLocaleString(), 
+      change: analytics.viewsChange, 
+      icon: 'eye-outline',
+      iconSet: 'ionicons'
+    },
+    { 
+      label: 'Check Ins', 
+      value: analytics.checkIns.toLocaleString(), 
+      change: analytics.checkInsChange, 
+      icon: 'map-marker-outline',
+      iconSet: 'materialcommunity'
+    },
+    { 
+      label: 'Comments', 
+      value: analytics.comments.toLocaleString(), 
+      change: analytics.commentsChange, 
+      icon: 'message-square',
+      iconSet: 'feather'
+    },
+    { 
+      label: 'Promotions', 
+      value: analytics.promotions.toLocaleString(), 
+      change: analytics.promotionsChange, 
+      icon: 'ticket-outline',
+      iconSet: 'ionicons'
+    }
+  ];
+
+  const quickActions = [
+    { label: 'Create Offer', icon: 'gift', action: () => setShowCreateOfferModal(true) },
+    { label: 'Boost Exposure', icon: 'trending-up', action: () => {} },
+  ];
+
+  if (loading) {
+    return (
+      <View className="flex-1 bg-black items-center justify-center">
+        <ActivityIndicator size="large" color="#06b6d4" />
+      </View>
+    );
+  }
+
+  if (!businessProfile) {
+    return (
+      <View className="flex-1 bg-black items-center justify-center p-6">
+        <Text className="text-white text-lg text-center mb-4">
+          No business profile found
+        </Text>
+        <Text className="text-neutral-400 text-center">
+          Create a business profile to access the dashboard
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <View className="flex-1 bg-black">
+      {/* Header */}
+      <View className="bg-neutral-950/95 border-b border-neutral-800/50 px-6 py-4">
+        <View className="flex-row items-center justify-between">
+          <View className="flex-1">
+            <View className="flex-row items-center gap-3">
+              <Text className="text-xl text-white font-bold">
+                {businessProfile.business_name}
+              </Text>
+              <View className="flex-row items-center gap-1.5 bg-cyan-500/10 px-2.5 py-1 rounded-full border border-cyan-500/20">
+                <Ionicons name="checkmark-circle" size={14} color="#22d3ee" />
+                <Text className="text-xs text-cyan-400 font-medium">
+                  {businessProfile.status === 'active' ? 'Active' : 'Inactive'}
+                </Text>
+              </View>
+            </View>
+            <Text className="text-sm text-neutral-400 mt-0.5">
+              {categories.join(' & ')}
+            </Text>
+          </View>
+          <TouchableOpacity
+            onPress={() => setShowEditModal(true)}
+            className="p-2 rounded-xl bg-neutral-900/50 border border-neutral-800/50"
+          >
+            <Feather name="edit-3" size={20} color="#a3a3a3" />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <ScrollView
+        className="flex-1"
+        contentContainerStyle={{ paddingBottom: 100 }}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#06b6d4" />
+        }
+      >
+        <View className="px-6 py-6 space-y-6">
+          {/* Chat Moderation */}
+          <TouchableOpacity
+            onPress={() => setShowChatModal(true)}
+            className="relative bg-gradient-to-br from-cyan-500/10 via-blue-500/10 to-cyan-600/10 rounded-2xl p-5 border border-cyan-500/20"
+            activeOpacity={0.8}
+          >
+            <View className="flex-row items-center justify-between">
+              <View className="flex-row items-center gap-3 flex-1">
+                <View className="p-3 bg-gradient-to-br from-cyan-400 to-blue-500 rounded-xl">
+                  <Ionicons name="chatbubbles" size={20} color="white" />
+                </View>
+                <View className="flex-1">
+                  <Text className="text-white font-bold">Chat Moderation</Text>
+                  <Text className="text-sm text-neutral-400 mt-0.5">Reviews & Messages</Text>
+                </View>
+                {unreadMessages > 0 && (
+                  <View className="bg-red-500 px-3 py-1 rounded-full">
+                    <Text className="text-white text-sm font-bold">{unreadMessages}</Text>
+                  </View>
+                )}
+              </View>
+            </View>
+            <View className="mt-4 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-xl py-3 px-6 flex-row items-center justify-center">
+              <Ionicons name="shield-checkmark" size={16} color="white" style={{ marginRight: 8 }} />
+              <Text className="text-white font-bold">View Live Chat Feed</Text>
+              <Ionicons name="chevron-forward" size={16} color="white" style={{ marginLeft: 'auto' }} />
+            </View>
+          </TouchableOpacity>
+
+          {/* Performance Overview */}
+          <View>
+            <View className="flex-row items-center justify-between mb-4">
+              <Text className="text-lg text-white font-semibold">Performance</Text>
+              <Text className="text-sm text-neutral-500 font-medium">Last 7 days</Text>
+            </View>
+            <View className="flex-row flex-wrap gap-3">
+              {stats.map((stat, index) => (
+                <TouchableOpacity
+                  key={stat.label}
+                  onPress={() => {
+                    setSelectedStat(stat.label);
+                    setShowAnalyticsModal(true);
+                  }}
+                  className="bg-gradient-to-br from-neutral-900 to-neutral-950 rounded-2xl p-4 border border-neutral-800/50 flex-1 min-w-[45%]"
+                  activeOpacity={0.7}
+                >
+                  <View className="flex-row items-center justify-between mb-2">
+                    {stat.iconSet === 'ionicons' && (
+                      <Ionicons name={stat.icon as any} size={20} color="#737373" />
+                    )}
+                    {stat.iconSet === 'materialcommunity' && (
+                      <MaterialCommunityIcons name={stat.icon as any} size={20} color="#737373" />
+                    )}
+                    {stat.iconSet === 'feather' && (
+                      <Feather name={stat.icon as any} size={20} color="#737373" />
+                    )}
+                    <View className={`flex-row items-center gap-1 ${
+                      stat.change >= 0 ? 'text-cyan-400' : 'text-red-400'
+                    }`}>
+                      <Ionicons 
+                        name={stat.change >= 0 ? 'arrow-up' : 'arrow-down'} 
+                        size={12} 
+                        color={stat.change >= 0 ? '#22d3ee' : '#ef4444'} 
+                      />
+                      <Text className={`text-xs font-medium ${
+                        stat.change >= 0 ? 'text-cyan-400' : 'text-red-400'
+                      }`}>
+                        {Math.abs(stat.change)}%
+                      </Text>
+                    </View>
+                  </View>
+                  <Text className="text-2xl text-white font-bold mb-0.5">{stat.value}</Text>
+                  <Text className="text-xs text-neutral-500">{stat.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          {/* Quick Actions */}
+          <View>
+            <View className="flex-row items-center justify-between mb-4">
+              <Text className="text-lg text-white font-semibold">Quick Actions</Text>
+              <TouchableOpacity
+                onPress={() => setShowActionsMenu(true)}
+                className="flex-row items-center gap-1"
+              >
+                <Text className="text-sm text-cyan-400 font-medium">More</Text>
+                <Ionicons name="ellipsis-vertical" size={16} color="#22d3ee" />
+              </TouchableOpacity>
+            </View>
+            <View className="flex-row gap-3">
+              {quickActions.map((action, index) => (
+                <TouchableOpacity
+                  key={action.label}
+                  onPress={action.action}
+                  className="bg-gradient-to-br from-cyan-500 to-blue-500 rounded-2xl p-5 flex-1"
+                  activeOpacity={0.8}
+                >
+                  <Feather name={action.icon as any} size={24} color="white" style={{ marginBottom: 12 }} />
+                  <Text className="text-white font-semibold text-sm">{action.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          {/* Active Offers */}
+          <View>
+            <View className="flex-row items-center justify-between mb-4">
+              <Text className="text-lg text-white font-semibold">Live Promotions</Text>
+              <TouchableOpacity>
+                <Text className="text-sm text-neutral-500 font-medium">View All</Text>
+              </TouchableOpacity>
+            </View>
+            <View className="space-y-3">
+              {activeOffers.length === 0 ? (
+                <View className="bg-neutral-900 rounded-2xl p-6 items-center">
+                  <Text className="text-neutral-400 text-center">
+                    No active offers yet. Create one to get started!
+                  </Text>
+                </View>
+              ) : (
+                activeOffers.map((offer) => (
+                  <View
+                    key={offer.id}
+                    className="bg-gradient-to-br from-neutral-900 to-neutral-950 rounded-2xl p-4 border border-neutral-800/50"
+                  >
+                    <View className="flex-row items-start justify-between mb-3">
+                      <View className="flex-1">
+                        <Text className="text-white font-semibold mb-1">{offer.title}</Text>
+                        <View className="flex-row items-center gap-4">
+                          <View className="flex-row items-center gap-1">
+                            <Ionicons name="time-outline" size={14} color="#a3a3a3" />
+                            <Text className="text-xs text-neutral-400">
+                              Expires in {formatExpiresIn(offer.expires_at)}
+                            </Text>
+                          </View>
+                          <View className="flex-row items-center gap-1">
+                            <Ionicons name="ticket-outline" size={14} color="#a3a3a3" />
+                            <Text className="text-xs text-neutral-400">
+                              {offer.redemptions_count} redeemed
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+                      <TouchableOpacity className="p-1.5">
+                        <Ionicons name="ellipsis-vertical" size={16} color="#737373" />
+                      </TouchableOpacity>
+                    </View>
+                    <View className="flex-row items-center justify-between pt-3 border-t border-neutral-800/50">
+                      <Text className="text-xs text-neutral-500">Status</Text>
+                      <TouchableOpacity
+                        onPress={() => toggleOffer(offer.id, offer.is_active)}
+                        className={`w-11 h-6 rounded-full justify-center ${
+                          offer.is_active ? 'bg-cyan-500' : 'bg-neutral-700'
+                        }`}
+                      >
+                        <View
+                          className={`w-4 h-4 rounded-full bg-white ${
+                            offer.is_active ? 'ml-6' : 'ml-1'
+                          }`}
+                        />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ))
+              )}
+            </View>
+          </View>
+
+          {/* Recommendations */}
+          <View>
+            <Text className="text-lg text-white font-semibold mb-4">Recommendations</Text>
+            <View className="space-y-3">
+              {[
+                {
+                  icon: 'gift',
+                  title: 'Create Offer',
+                  description: 'Drive repeat visits with exclusive perks. Businesses see 40% more check-ins with active offers.',
+                },
+                {
+                  icon: 'zap',
+                  title: 'Boost Exposure',
+                  description: 'Reach 10x more nearby users. Get featured to active customers in your area instantly.',
+                },
+                {
+                  icon: 'trending-up',
+                  title: 'Run Promotion',
+                  description: 'Limited-time offers create urgency. Promotions generate 2.5x more engagement on average.',
+                },
+              ].map((rec, index) => (
+                <View
+                  key={index}
+                  className="bg-gradient-to-br from-cyan-950/30 to-blue-950/30 rounded-2xl p-4 border border-cyan-600/20"
+                >
+                  <View className="flex-row gap-3">
+                    <View className="p-2 bg-cyan-600/20 rounded-xl border border-cyan-600/20">
+                      <Feather name={rec.icon as any} size={20} color="#22d3ee" />
+                    </View>
+                    <View className="flex-1">
+                      <Text className="text-white font-semibold text-sm mb-1">{rec.title}</Text>
+                      <Text className="text-xs text-neutral-400 leading-relaxed">
+                        {rec.description}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              ))}
+            </View>
+          </View>
+        </View>
+      </ScrollView>
+
+      {/* Modals */}
+      <EditProfileModal
+        visible={showEditModal}
+        onClose={() => setShowEditModal(false)}
+        businessProfile={businessProfile}
+        categories={categories}
+        onUpdate={loadDashboardData}
+      />
+
+      <CreateOfferModal
+        visible={showCreateOfferModal}
+        onClose={() => setShowCreateOfferModal(false)}
+        businessId={businessProfile.id}
+        onOfferCreated={loadDashboardData}
+      />
+
+      <ChatModerationModal
+        visible={showChatModal}
+        onClose={() => setShowChatModal(false)}
+        businessId={businessProfile.id}
+      />
+
+      {/* Actions Menu Modal */}
+      <Modal
+        visible={showActionsMenu}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowActionsMenu(false)}
+      >
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={() => setShowActionsMenu(false)}
+          className="flex-1 bg-black/80"
+        >
+          <View className="absolute bottom-0 left-0 right-0 bg-neutral-900 rounded-t-3xl border-t border-neutral-800/50 p-6 pb-8">
+            <View className="flex-row items-center justify-between mb-6">
+              <Text className="text-xl text-white font-semibold">All Actions</Text>
+              <TouchableOpacity
+                onPress={() => setShowActionsMenu(false)}
+                className="p-2 rounded-xl bg-neutral-800/50"
+              >
+                <Ionicons name="close" size={20} color="#a3a3a3" />
+              </TouchableOpacity>
+            </View>
+            <View className="flex-row flex-wrap gap-3">
+              {[
+                { label: 'Create Offer', icon: 'gift' },
+                { label: 'Run Promotion', icon: 'trending-up' },
+                { label: 'Boost Visibility', icon: 'zap' },
+                { label: 'Edit Profile', icon: 'edit-3' },
+                { label: 'View Analytics', icon: 'bar-chart-2' },
+                { label: 'Manage Hours', icon: 'clock' },
+              ].map((action, index) => (
+                <TouchableOpacity
+                  key={action.label}
+                  className="bg-gradient-to-br from-neutral-800 to-neutral-900 rounded-xl p-4 border border-neutral-700/50 w-[48%]"
+                  activeOpacity={0.7}
+                >
+                  <Feather name={action.icon as any} size={20} color="#d4d4d4" style={{ marginBottom: 8 }} />
+                  <Text className="text-neutral-200 font-medium text-sm">{action.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+    </View>
+  );
+}

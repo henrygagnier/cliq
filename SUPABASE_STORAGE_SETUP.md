@@ -33,6 +33,7 @@ After creating the bucket, you need to add policies to control access:
 3. Add the following policies:
 
 #### Policy 1: Allow Authenticated Uploads (INSERT)
+
 - **Policy name**: "Authenticated users can upload avatars"
 - **Policy definition**: `INSERT`
 - **Target roles**: `authenticated`
@@ -42,6 +43,7 @@ After creating the bucket, you need to add policies to control access:
   ```
 
 #### Policy 2: Public Read Access (SELECT)
+
 - **Policy name**: "Public can view avatars"
 - **Policy definition**: `SELECT`
 - **Target roles**: `public`
@@ -51,6 +53,7 @@ After creating the bucket, you need to add policies to control access:
   ```
 
 #### Policy 3: User Can Update Their Own (UPDATE)
+
 - **Policy name**: "Users can update their own avatars"
 - **Policy definition**: `UPDATE`
 - **Target roles**: `authenticated`
@@ -60,6 +63,7 @@ After creating the bucket, you need to add policies to control access:
   ```
 
 #### Policy 4: User Can Delete Their Own (DELETE)
+
 - **Policy name**: "Users can delete their own avatars"
 - **Policy definition**: `DELETE`
 - **Target roles**: `authenticated`

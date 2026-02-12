@@ -85,6 +85,7 @@ export function CreateProfileScreen({ onContinue }: CreateProfileScreenProps) {
   });
 
   const pickImage = async () => {
+    console.log("pickImage called");
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
@@ -92,8 +93,14 @@ export function CreateProfileScreen({ onContinue }: CreateProfileScreenProps) {
       quality: 1,
     });
 
+    console.log("ImagePicker result:", JSON.stringify(result, null, 2));
+
     if (!result.canceled) {
-      setPhotoUri(result.assets[0].uri);
+      const uri = result.assets[0].uri;
+      console.log("Setting photoUri to:", uri);
+      setPhotoUri(uri);
+    } else {
+      console.log("Image picker was canceled");
     }
   };
 
@@ -119,7 +126,13 @@ export function CreateProfileScreen({ onContinue }: CreateProfileScreenProps) {
         enabledSocials[key] = social.value.trim();
       }
     });
-    
+
+    console.log("handleContinue called with:", {
+      name,
+      photoUri,
+      socials: enabledSocials,
+    });
+
     onContinue({ name, photoUri, socials: enabledSocials });
   };
 
@@ -142,10 +155,7 @@ export function CreateProfileScreen({ onContinue }: CreateProfileScreenProps) {
           <View style={styles.photoContainer}>
             <TouchableOpacity onPress={pickImage} style={styles.photoCircle}>
               {photoUri ? (
-                <Image
-                  source={{ uri: photoUri }}
-                  style={styles.profileImage}
-                />
+                <Image source={{ uri: photoUri }} style={styles.profileImage} />
               ) : (
                 <Camera width={48} height={48} color="#6B7280" />
               )}
@@ -372,11 +382,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     position: "relative",
-    overflow: "hidden",
+    overflow: "visible",
   },
   profileImage: {
     width: "100%",
     height: "100%",
+    borderRadius: 64,
   },
   cameraButton: {
     position: "absolute",
@@ -393,6 +404,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 4,
     elevation: 4,
+    zIndex: 10,
   },
   photoHint: {
     color: "#6B7280",

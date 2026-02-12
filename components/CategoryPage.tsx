@@ -158,23 +158,36 @@ export function CategoryPage({
         const lon = loc.coords.longitude;
 
         const types = mapCategoryName(categoryName);
+        const radiusMi = 12.4;
+        const latDelta = radiusMi / 69; // ~69 miles per degree latitude
+        const lonDelta = radiusMi / (69 * Math.max(Math.cos(toRad(lat)), 0.2));
+        const minLat = lat - latDelta;
+        const maxLat = lat + latDelta;
+        const minLon = lon - lonDelta;
+        const maxLon = lon + lonDelta;
 
-        const { data: allHotspots, error } = await supabase
+        let query = supabase
           .from("hotspots")
-          .select("*")
-          .limit(500);
+          .select("id,name,type,latitude,longitude")
+          .gte("latitude", minLat)
+          .lte("latitude", maxLat)
+          .gte("longitude", minLon)
+          .lte("longitude", maxLon)
+          .limit(150);
+
+        if (types.length > 0) {
+          query = query.in("type", types);
+        }
+
+        const { data: filteredHotspots, error } = await query;
         if (error) throw error;
 
-        const hotspotsWithDistance = (allHotspots || [])
+        const hotspotsWithDistance = (filteredHotspots || [])
           .map((h: any) => ({
             ...h,
             distanceMi: calculateDistance(lat, lon, h.latitude, h.longitude),
           }))
-          .filter((h: any) => h.distanceMi <= 12.4)
-          .filter((h: any) => {
-            if (types.length === 0) return true;
-            return types.includes((h.type || "").toLowerCase());
-          });
+          .filter((h: any) => h.distanceMi <= radiusMi);
 
         const ids = hotspotsWithDistance.map((h: any) => h.id);
         const thirtyMinAgo = new Date(
@@ -182,13 +195,14 @@ export function CategoryPage({
         ).toISOString();
         const { data: activeData } = await supabase
           .from("hotspot_active_users")
-          .select("hotspot_id,user_id")
+          .select("hotspot_id, count:user_id")
           .in("hotspot_id", ids)
-          .gte("last_seen", thirtyMinAgo);
+          .gte("last_seen", thirtyMinAgo)
+          .group("hotspot_id");
 
         const counts: Record<string, number> = {};
-        (activeData || []).forEach((u: any) => {
-          counts[u.hotspot_id] = (counts[u.hotspot_id] || 0) + 1;
+        (activeData || []).forEach((row: any) => {
+          counts[row.hotspot_id] = row.count || 0;
         });
 
         const result = hotspotsWithDistance.map((h: any) => ({

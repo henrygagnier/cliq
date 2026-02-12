@@ -3,6 +3,8 @@ import { supabase } from "./lib/supabase";
 import Auth from "./components/Auth";
 import Onboarding from "./components/Onboarding";
 import Card from "./components/Account";
+import WalletScreen from "./components/wallet/WalletScreen";
+import { BusinessDashboard } from "./components/business";
 import { getUserProfile } from "./lib/onboardingUtils";
 import { Session } from "@supabase/supabase-js";
 import { GluestackUIProvider } from "@gluestack-ui/themed";
@@ -26,15 +28,19 @@ import Rewards from "./components/Rewards";
 import Home from "./components/Home";
 import HotspotDetailScreen from "./components/HotspotDetailScreen";
 import CategoryPageScreen from "./components/CategoryPage";
+import { LiveHotspotPage } from "./components/livehotspot/LiveHotspotPage";
+import { LiveHotspotsHub } from "./components/livehotspot/LiveHotspotsHub";
 import { PortalProvider } from "@gorhom/portal";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { RewardsScreen } from "./components/RewardsScreen";
+import RedeemedOffersScreen from "./components/RedeemedOffersScreen";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
+const RootStack = createNativeStackNavigator();
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -105,7 +111,6 @@ export default function App() {
             animation: "slide_from_bottom",
             headerShown: false,
             gestureEnabled: true,
-            cardOverlayEnabled: false,
             cardStyle: { backgroundColor: "transparent" },
           }}
         />
@@ -114,11 +119,24 @@ export default function App() {
           component={CategoryPageScreen}
           options={{ headerShown: false }}
         />
+        <Stack.Screen
+          name="RedeemedOffers"
+          component={RedeemedOffersScreen}
+          options={{ headerShown: false }}
+        />
       </Stack.Navigator>
     );
   }
 
-  function CustomTabBar({ state, descriptors, navigation }) {
+  function HotspotStack() {
+    return (
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="HotspotHub" component={LiveHotspotPage} />
+      </Stack.Navigator>
+    );
+  }
+
+  function CustomTabBar({ state, descriptors, navigation }: any) {
     const insets = useSafeAreaInsets();
 
     const tabs = [
@@ -130,79 +148,81 @@ export default function App() {
     ];
 
     return (
-      <View
-        style={{
-          backgroundColor: "#111827",
-          borderTopLeftRadius: 24,
-          borderTopRightRadius: 24,
-          shadowColor: "#000",
-          shadowOffset: { width: 0, height: -2 },
-          shadowOpacity: 0.3,
-          shadowRadius: 10,
-          elevation: 10,
-        }}
-      >
+      <View style={{ backgroundColor: "#0A0A0A" }}>
         <View
           style={{
-            flexDirection: "row",
-            alignItems: "flex-end",
-            justifyContent: "space-around",
-            paddingHorizontal: 16,
-            paddingTop: 8,
-            paddingBottom: 16 + insets.bottom,
+            backgroundColor: "#111827",
+            borderTopLeftRadius: 24,
+            borderTopRightRadius: 24,
+            overflow: "visible",
+            shadowColor: "#000",
+            shadowOffset: { width: 0, height: -2 },
+            shadowOpacity: 0.3,
+            shadowRadius: 10,
+            elevation: 10,
           }}
         >
-          {state.routes.map((route, index) => {
-            const isFocused = state.index === index;
-            const isCenter = index === 2;
-            const tabInfo = tabs[index];
-            const IconComponent = tabInfo.Icon;
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "flex-end",
+              justifyContent: "space-around",
+              paddingHorizontal: 16,
+              paddingTop: 8,
+              paddingBottom: 16 + insets.bottom,
+            }}
+          >
+            {state.routes.map((route: any, index: number) => {
+              const isFocused = state.index === index;
+              const isCenter = index === 2;
+              const tabInfo = tabs[index];
+              const IconComponent = tabInfo.Icon;
 
-            const onPress = () => {
-              const event = navigation.emit({
-                type: "tabPress",
-                target: route.key,
-                canPreventDefault: true,
-              });
+              const onPress = () => {
+                const event = navigation.emit({
+                  type: "tabPress",
+                  target: route.key,
+                  canPreventDefault: true,
+                });
 
-              if (!isFocused && !event.defaultPrevented) {
-                navigation.navigate(route.name);
-              }
-            };
+                if (!isFocused && !event.defaultPrevented) {
+                  navigation.navigate(route.name);
+                }
+              };
 
-            if (isCenter) {
-              return (
-                <TouchableOpacity
-                  key={route.key}
-                  onPress={onPress}
-                  activeOpacity={0.9}
-                  style={{
-                    alignItems: "center",
-                    justifyContent: "center",
-                    marginTop: -32,
-                  }}
-                >
-                  <View
+              if (isCenter) {
+                return (
+                  <TouchableOpacity
+                    key={route.key}
+                    onPress={onPress}
+                    activeOpacity={0.9}
                     style={{
-                      width: 80,
-                      height: 80,
                       alignItems: "center",
                       justifyContent: "center",
+                      marginTop: -32,
                     }}
                   >
-                    {isFocused ? (
-                      <View
-                        style={{
-                          position: "absolute",
-                          top: -30,
-                          left: -30,
-                          width: 140,
-                          height: 140,
-                        }}
-                      >
-                        <WebView
-                          source={{
-                            html: `
+                    <View
+                      style={{
+                        width: 80,
+                        height: 80,
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      {isFocused ? (
+                        <View
+                          style={{
+                            position: "absolute",
+                            top: -30,
+                            left: -30,
+                            width: 140,
+                            height: 140,
+                          }}
+                        >
+                          <WebView
+                            source={{
+                              html: `
                             <!DOCTYPE html>
                             <html>
                             <head>
@@ -319,45 +339,75 @@ export default function App() {
                             </body>
                             </html>
                           `,
-                          }}
+                            }}
+                            style={{
+                              width: 140,
+                              height: 140,
+                              backgroundColor: "transparent",
+                            }}
+                            scrollEnabled={false}
+                            bounces={false}
+                            showsVerticalScrollIndicator={false}
+                            showsHorizontalScrollIndicator={false}
+                            pointerEvents="none"
+                          />
+                        </View>
+                      ) : (
+                        <View
                           style={{
-                            width: 140,
-                            height: 140,
-                            backgroundColor: "transparent",
+                            width: 64,
+                            height: 64,
+                            borderRadius: 32,
+                            backgroundColor: "#374151",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            shadowColor: "#000",
+                            shadowOffset: { width: 0, height: 4 },
+                            shadowOpacity: 0.5,
+                            shadowRadius: 8,
+                            elevation: 8,
+                            alignSelf: "center",
+                            marginTop: 8,
                           }}
-                          scrollEnabled={false}
-                          bounces={false}
-                          showsVerticalScrollIndicator={false}
-                          showsHorizontalScrollIndicator={false}
-                          pointerEvents="none"
-                        />
-                      </View>
-                    ) : (
-                      <View
-                        style={{
-                          width: 64,
-                          height: 64,
-                          borderRadius: 32,
-                          backgroundColor: "#374151",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          shadowColor: "#000",
-                          shadowOffset: { width: 0, height: 4 },
-                          shadowOpacity: 0.5,
-                          shadowRadius: 8,
-                          elevation: 8,
-                          alignSelf: "center",
-                          marginTop: 8,
-                        }}
-                      >
-                        <IconComponent
-                          size={28}
-                          color="#FFFFFF"
-                          strokeWidth={2}
-                        />
-                      </View>
-                    )}
-                  </View>
+                        >
+                          <IconComponent
+                            size={28}
+                            color="#FFFFFF"
+                            strokeWidth={2}
+                          />
+                        </View>
+                      )}
+                    </View>
+                    <Text
+                      style={{
+                        fontSize: 12,
+                        marginTop: 4,
+                        fontWeight: "500",
+                        color: isFocused ? "#60A5FA" : "#9CA3AF",
+                      }}
+                    >
+                      {tabInfo.name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              }
+
+              return (
+                <TouchableOpacity
+                  key={route.key}
+                  onPress={onPress}
+                  activeOpacity={0.7}
+                  style={{
+                    alignItems: "center",
+                    justifyContent: "center",
+                    minWidth: 60,
+                  }}
+                >
+                  <IconComponent
+                    size={24}
+                    color={isFocused ? "#60A5FA" : "#D1D5DB"}
+                    strokeWidth={isFocused ? 2.5 : 2}
+                  />
                   <Text
                     style={{
                       fontSize: 12,
@@ -370,37 +420,8 @@ export default function App() {
                   </Text>
                 </TouchableOpacity>
               );
-            }
-
-            return (
-              <TouchableOpacity
-                key={route.key}
-                onPress={onPress}
-                activeOpacity={0.7}
-                style={{
-                  alignItems: "center",
-                  justifyContent: "center",
-                  minWidth: 60,
-                }}
-              >
-                <IconComponent
-                  size={24}
-                  color={isFocused ? "#60A5FA" : "#D1D5DB"}
-                  strokeWidth={isFocused ? 2.5 : 2}
-                />
-                <Text
-                  style={{
-                    fontSize: 12,
-                    marginTop: 4,
-                    fontWeight: "500",
-                    color: isFocused ? "#60A5FA" : "#9CA3AF",
-                  }}
-                >
-                  {tabInfo.name}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
+            })}
+          </View>
         </View>
       </View>
     );
@@ -408,23 +429,35 @@ export default function App() {
 
   function MainTabs() {
     return (
+      <Tab.Navigator
+        screenOptions={{ headerShown: false }}
+        tabBar={(props) => <CustomTabBar {...props} />}
+      >
+        <Tab.Screen name="Card">{() => <WalletScreen />}</Tab.Screen>
+        <Tab.Screen name="Home" component={HomeStack} />
+        <Tab.Screen name="Hotspot" component={HotspotStack} />
+        <Tab.Screen name="Rewards">{() => <RewardsScreen />}</Tab.Screen>
+        <Tab.Screen name="Profile">
+          {() => <Card session={session!} />}
+        </Tab.Screen>
+      </Tab.Navigator>
+    );
+  }
+
+  function RootNavigator() {
+    return (
       <NavigationContainer>
-        <Tab.Navigator
-          screenOptions={{ headerShown: false }}
-          tabBar={(props) => <CustomTabBar {...props} />}
-        >
-          <Tab.Screen name="Card">
-            {() => <Card session={session!} />}
-          </Tab.Screen>
-          <Tab.Screen name="Home" component={HomeStack} />
-          <Tab.Screen name="Hotspot" component={Rewards} />
-          <Tab.Screen name="Rewards">
-            {() => <RewardsScreen session={session!} />}
-          </Tab.Screen>
-          <Tab.Screen name="Profile">
-            {() => <Card session={session!} />}
-          </Tab.Screen>
-        </Tab.Navigator>
+        <RootStack.Navigator screenOptions={{ headerShown: false }}>
+          <RootStack.Screen name="MainApp" component={MainTabs} />
+          <RootStack.Screen
+            name="BusinessDashboard"
+            component={BusinessDashboard}
+            options={{
+              presentation: "fullScreenModal",
+              animation: "slide_from_bottom",
+            }}
+          />
+        </RootStack.Navigator>
       </NavigationContainer>
     );
   }
@@ -434,7 +467,7 @@ export default function App() {
       <PortalProvider>
         <GluestackUIProvider config={config}>
           <SafeAreaProvider>
-            <SafeAreaView style={{ flex: 1, backgroundColor: "#111827" }}>
+            <SafeAreaView style={{ flex: 1, backgroundColor: "#0A0A0A" }}>
               {session?.user ? (
                 showOnboarding ? (
                   <Onboarding
@@ -443,7 +476,7 @@ export default function App() {
                     onComplete={() => setShowOnboarding(false)}
                   />
                 ) : (
-                  <MainTabs />
+                  <RootNavigator />
                 )
               ) : (
                 <Auth />

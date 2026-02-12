@@ -34,11 +34,11 @@ export function PermissionsScreen({ onAllow }: PermissionsScreenProps) {
   const generateMapHTML = () => {
     const lat = 40.758;
     const lng = -73.9855;
-    
+
     // GLOBAL SYNC TIMESTAMP - All markers sync to this
     const PULSE_DURATION = 2500;
     const ANIMATION_START = Date.now();
-    const globalAnimationDelay = (-ANIMATION_START % PULSE_DURATION);
+    const globalAnimationDelay = -ANIMATION_START % PULSE_DURATION;
 
     return `
       <!DOCTYPE html>

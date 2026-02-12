@@ -98,6 +98,17 @@ export default function HotspotMap() {
     return `${distanceMi.toFixed(1)}mi`;
   };
 
+  const getBoundingBox = (lat: number, lng: number, radiusMi: number) => {
+    const latDelta = radiusMi / 69;
+    const lonDelta = radiusMi / (69 * Math.max(Math.cos(toRad(lat)), 0.2));
+    return {
+      minLat: lat - latDelta,
+      maxLat: lat + latDelta,
+      minLon: lng - lonDelta,
+      maxLon: lng + lonDelta,
+    };
+  };
+
   // Determine radius and minimum distance between markers based on zoom level
   const getRadiusAndMinDistance = (zoom: number) => {
     let radius: number, minDistance: number;
@@ -204,14 +215,24 @@ export default function HotspotMap() {
 
     try {
       const { radius, minDistance } = getRadiusAndMinDistance(zoom);
+      const { minLat, maxLat, minLon, maxLon } = getBoundingBox(
+        lat,
+        lng,
+        radius,
+      );
+
       const { data, error } = await supabase
         .from("hotspots")
-        .select("*")
-        .limit(200);
+        .select("id,name,type,latitude,longitude")
+        .gte("latitude", minLat)
+        .lte("latitude", maxLat)
+        .gte("longitude", minLon)
+        .lte("longitude", maxLon)
+        .limit(180);
 
       if (error) throw error;
 
-      const hotspotsWithDistance = data
+      const hotspotsWithDistance = (data || [])
         .map((hotspot) => {
           const distanceFromUser = calculateDistance(
             userLocation ? userLocation.lat : lat,

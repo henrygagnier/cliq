@@ -25,7 +25,9 @@ import {
   Plus,
   Minus,
   Star,
+  Ticket,
 } from "lucide-react-native";
+import { useNavigation } from "@react-navigation/native";
 
 // Tier Thresholds
 const TIER_THRESHOLDS = {
@@ -585,6 +587,8 @@ const LiveLeaderboard: React.FC<LiveLeaderboardProps> = ({
 
 // EarnPointsActions Component
 const EarnPointsActions: React.FC = () => {
+  const navigation = useNavigation<any>();
+
   const actions = [
     {
       id: 1,
@@ -652,6 +656,41 @@ const EarnPointsActions: React.FC = () => {
           );
         })}
       </View>
+    </View>
+  );
+};
+
+// Redeemed Offers Section Component
+const RedeemedOffersSection: React.FC = () => {
+  const navigation = useNavigation<any>();
+
+  return (
+    <View style={styles.offersSection}>
+      <TouchableOpacity
+        style={styles.offersButton}
+        onPress={() => navigation.navigate("RedeemedOffers")}
+        activeOpacity={0.8}
+      >
+        <LinearGradient
+          colors={["#3B82F6", "#2563EB"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.offersButtonGradient}
+        >
+          <View style={styles.offersButtonContent}>
+            <View style={styles.offersButtonLeft}>
+              <Ticket color="white" size={24} />
+              <View style={styles.offersButtonText}>
+                <Text style={styles.offersButtonTitle}>My Redeemed Offers</Text>
+                <Text style={styles.offersButtonSubtitle}>
+                  View your claimed deals & promos
+                </Text>
+              </View>
+            </View>
+            <FontAwesome6 name="chevron-right" size={16} color="white" />
+          </View>
+        </LinearGradient>
+      </TouchableOpacity>
     </View>
   );
 };
@@ -876,6 +915,7 @@ export function RewardsScreen() {
           currentUserPoints={userPoints}
         />
         <EarnPointsActions />
+        <RedeemedOffersSection />
         <RecentActivity activities={activities} />
       </ScrollView>
     </LinearGradient>
@@ -1359,6 +1399,50 @@ const styles = StyleSheet.create({
     color: "#64748b",
     fontWeight: "500",
   },
+
+  // Offers Section
+  offersSection: {
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+  },
+  offersButton: {
+    borderRadius: 16,
+    overflow: "hidden",
+    shadowColor: "#3B82F6",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  offersButtonGradient: {
+    borderRadius: 16,
+    padding: 20,
+  },
+  offersButtonContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  offersButtonLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    gap: 16,
+  },
+  offersButtonText: {
+    flex: 1,
+  },
+  offersButtonTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "white",
+    marginBottom: 4,
+  },
+  offersButtonSubtitle: {
+    fontSize: 14,
+    color: "rgba(255, 255, 255, 0.8)",
+  },
+
   activityContainer: {
     paddingHorizontal: 20,
     paddingVertical: 8,

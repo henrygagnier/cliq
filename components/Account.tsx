@@ -18,6 +18,9 @@ import { LinearGradient } from "expo-linear-gradient";
 import type { Session } from "@supabase/supabase-js";
 import * as ImagePicker from "expo-image-picker";
 import { supabase } from "../lib/supabase";
+import { useNavigation } from "@react-navigation/native";
+import { isBusinessOwner } from "../lib/businessUtils";
+import ClaimBusinessModal from "./business/ClaimBusinessModal";
 
 type SocialKey =
   | "instagram"
@@ -246,8 +249,11 @@ export default function UnifiedCardScreen({
 }: {
   session: Session | null;
 }) {
+  const navigation = useNavigation();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [draft, setDraft] = useState<Profile | null>(null);
+  const [isBusiness, setIsBusiness] = useState(false);
+  const [showClaimModal, setShowClaimModal] = useState(false);
   const [modalMode, setModalMode] = useState<ModalMode | null>(null);
   const [showAbout, setShowAbout] = useState(false);
   const [showPointsDetail, setShowPointsDetail] = useState(false);
@@ -256,7 +262,15 @@ export default function UnifiedCardScreen({
   const CARD_WIDTH = Math.min(width - 40, 380);
 
   useEffect(() => {
-    if (session?.user) loadProfile();
+    if (session?.user) {
+      console.log('Loading profile for user:', session.user.id);
+      loadProfile();
+      // Check if user is a business owner
+      isBusinessOwner(session.user.id).then((result) => {
+        console.log('Is business owner:', result);
+        setIsBusiness(result);
+      });
+    }
   }, [session]);
 
   async function loadProfile() {
@@ -361,6 +375,9 @@ export default function UnifiedCardScreen({
   } = calculateTier(profile?.points || 0);
   const config = tierConfig[cardTier];
 
+  // Debug logging
+  console.log('Account render - isBusiness:', isBusiness, 'session:', !!session);
+
   return (
     <ScrollView
       style={styles.container}
@@ -410,16 +427,6 @@ export default function UnifiedCardScreen({
                     />
                   </View>
                 )}
-                {/* Age Badge */}
-                <View
-                  style={[styles.ageBadge, { backgroundColor: config.cardBg }]}
-                >
-                  <Text
-                    style={[styles.ageBadgeText, { color: config.textColor }]}
-                  >
-                    {age ?? "--"}
-                  </Text>
-                </View>
               </View>
 
               {/* Name & Status */}
@@ -739,6 +746,39 @@ export default function UnifiedCardScreen({
         </View>
       </Modal>
 
+      {/* Business Dashboard Button - Shows for business owners */}
+      {isBusiness && (
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={() => navigation.navigate('BusinessDashboard' as never)}
+          style={[styles.businessDashboardButton, { width: CARD_WIDTH }]}
+        >
+          <LinearGradient
+            colors={['#06b6d4', '#3b82f6']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.businessGradient}
+          >
+            <FontAwesome6 name="briefcase" size={16} color="#FFFFFF" />
+            <Text style={styles.businessDashboardText}>Business Dashboard</Text>
+          </LinearGradient>
+        </TouchableOpacity>
+      )}
+
+      {/* Claim Business Button - Shows when not a business owner */}
+      {!isBusiness && session?.user && (
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={() => setShowClaimModal(true)}
+          style={[styles.createBusinessButton, { width: CARD_WIDTH }]}
+        >
+          <View style={styles.createBusinessContent}>
+            <FontAwesome6 name="store" size={16} color="#06b6d4" />
+            <Text style={styles.createBusinessText}>Claim Your Business</Text>
+          </View>
+        </TouchableOpacity>
+      )}
+
       {/* Logout Button */}
       <TouchableOpacity
         activeOpacity={0.7}
@@ -750,6 +790,19 @@ export default function UnifiedCardScreen({
         <FontAwesome6 name="right-from-bracket" size={16} color="#FF3B30" />
         <Text style={styles.logoutText}>Logout</Text>
       </TouchableOpacity>
+
+      {/* Claim Business Modal */}
+      {session?.user && (
+        <ClaimBusinessModal
+          visible={showClaimModal}
+          onClose={() => setShowClaimModal(false)}
+          onBusinessClaimed={() => {
+            setIsBusiness(true);
+            loadProfile();
+          }}
+          userId={session.user.id}
+        />
+      )}
     </ScrollView>
   );
 }
@@ -1264,6 +1317,55 @@ const styles = StyleSheet.create({
     paddingHorizontal: 28,
     backgroundColor: "#007AFF",
     borderRadius: 12,
+  },
+
+  businessDashboardButton: {
+    marginTop: 20,
+    borderRadius: 16,
+    overflow: 'hidden',
+    shadowColor: "#06b6d4",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  businessGradient: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+  },
+  businessDashboardText: { 
+    color: "#FFFFFF", 
+    fontSize: 16, 
+    fontWeight: "700",
+  },
+  createBusinessButton: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    marginBottom: 16,
+    borderWidth: 2,
+    borderColor: "#06b6d4",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  createBusinessContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+  },
+  createBusinessText: {
+    color: "#06b6d4",
+    fontSize: 16,
+    fontWeight: "700",
   },
 
   logoutButton: {

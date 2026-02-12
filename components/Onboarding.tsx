@@ -1,6 +1,5 @@
 import React, { useState } from "react";
 import { View, Text, StyleSheet } from "react-native";
-import * as FileSystem from "expo-file-system";
 import { supabase } from "../lib/supabase";
 import { PermissionsScreen } from "./onboarding/PermissionsScreen";
 import { CreateProfileScreen } from "./onboarding/CreateProfileScreen";
@@ -46,41 +45,49 @@ export default function Onboarding({
       // If there's a photo, upload it to Supabase Storage
       if (onboardingData.photoUri) {
         try {
+          console.log(
+            "Starting photo upload for URI:",
+            onboardingData.photoUri,
+          );
           const fileName = `${userId}-${Date.now()}.jpg`;
-          const fileInfo = await FileSystem.getInfoAsync(
-            onboardingData.photoUri,
-          );
 
-          if (!fileInfo.exists) {
-            throw new Error("Photo file does not exist");
-          }
+          // Use FormData like Account.tsx does
+          const formData = new FormData();
+          formData.append("file", {
+            uri: onboardingData.photoUri,
+            name: fileName,
+            type: "image/jpeg",
+          } as any);
 
-          const base64 = await FileSystem.readAsStringAsync(
-            onboardingData.photoUri,
-            {
-              encoding: FileSystem.EncodingType.Base64,
-            },
-          );
-
-          // Decode base64 to binary for upload
-          const arrayBuffer = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
-
+          // Upload to Supabase Storage
           const { data: uploadData, error: uploadError } =
             await supabase.storage
               .from("avatars")
-              .upload(fileName, arrayBuffer, {
-                contentType: "image/jpeg",
+              .upload(fileName, formData as any, {
+                cacheControl: "3600",
+                upsert: true,
               });
 
-          if (uploadError) throw uploadError;
+          if (uploadError) {
+            console.error("Upload error:", uploadError);
+            throw uploadError;
+          }
 
-          const {
-            data: { publicUrl },
-          } = supabase.storage.from("avatars").getPublicUrl(fileName);
+          console.log("Upload successful:", uploadData);
 
+          // Get public URL
+          const publicUrl = supabase.storage
+            .from("avatars")
+            .getPublicUrl(fileName).data.publicUrl;
+
+          console.log("Public URL:", publicUrl);
           avatarUrl = publicUrl;
         } catch (photoErr) {
           console.error("Error uploading photo:", photoErr);
+          console.error(
+            "Photo error details:",
+            JSON.stringify(photoErr, null, 2),
+          );
           // Continue without photo if upload fails
         }
       }
